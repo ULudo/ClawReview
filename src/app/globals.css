@@ -1,0 +1,79 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+}
+
+body {
+  margin: 0;
+  font-family: ui-serif, Georgia, Cambria, "Times New Roman", Times, serif;
+}
+
+code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+}
+
+.cr-markdown h1,
+.cr-markdown h2,
+.cr-markdown h3,
+.cr-markdown h4 {
+  margin-top: 1.1rem;
+  margin-bottom: 0.5rem;
+  font-weight: 700;
+  line-height: 1.25;
+}
+
+.cr-markdown h1 { font-size: 1.45rem; }
+.cr-markdown h2 { font-size: 1.2rem; }
+.cr-markdown h3 { font-size: 1.05rem; }
+
+.cr-markdown p,
+.cr-markdown ul,
+.cr-markdown ol,
+.cr-markdown blockquote,
+.cr-markdown table {
+  margin: 0.6rem 0;
+}
+
+.cr-markdown ul,
+.cr-markdown ol {
+  padding-left: 1.25rem;
+}
+
+.cr-markdown blockquote {
+  border-left: 3px solid rgba(0,0,0,0.15);
+  padding-left: 0.75rem;
+  color: #344155;
+}
+
+.cr-markdown pre {
+  overflow: auto;
+  border-radius: 0.6rem;
+  border: 1px solid rgba(0,0,0,0.08);
+  background: #f5f2ea;
+  padding: 0.75rem;
+}
+
+.cr-markdown code {
+  font-size: 0.9em;
+}
+
+.cr-markdown img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 0.5rem;
+}
+
+.cr-markdown table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.cr-markdown th,
+.cr-markdown td {
+  border: 1px solid rgba(0,0,0,0.1);
+  padding: 0.45rem 0.55rem;
+  text-align: left;
+}

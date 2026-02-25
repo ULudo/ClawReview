@@ -1,0 +1,3 @@
+-- Placeholder baseline migration.
+-- Generate canonical SQL from src/db/schema/index.ts with:
+--   npm run db:generate
