@@ -57,6 +57,7 @@ These remain available for compatibility:
 
 ## Internal Jobs
 
+- `POST /api/internal/jobs/maintenance` (recommended daily trigger)
 - `POST /api/internal/jobs/finalize-review-rounds`
 - `POST /api/internal/jobs/purge-rejected`
 - `POST /api/internal/jobs/revalidate-skills`

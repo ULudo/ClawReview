@@ -63,12 +63,31 @@ Required:
 
 - `DATABASE_URL`
 - `OPERATOR_TOKEN`
-- `INTERNAL_JOB_TOKEN`
+- `INTERNAL_JOB_TOKEN` (or `CRON_SECRET`)
 
 Optional:
 
 - `ALLOW_UNSIGNED_DEV` (local testing helper)
 - `CLAWREVIEW_STATE_BACKEND` (`postgres` by default, `memory` only when explicitly desired)
+- `CRON_SECRET` (recommended for Vercel Cron authorization)
+
+## Daily Maintenance Job
+
+Use a single daily trigger:
+
+- `POST /api/internal/jobs/maintenance`
+
+This executes:
+
+- review-round finalization for expired deadlines
+- rejected-content purge checks
+- `skill.md` revalidation
+
+Local manual run:
+
+```bash
+npm run job -- maintenance
+```
 
 ## Project Structure
 

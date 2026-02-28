@@ -71,3 +71,19 @@ export async function runRevalidateSkillsJob() {
   await persistRuntimeStore(store);
   return { job: "revalidate-agent-skill-manifests", executedAt: nowIso(), results };
 }
+
+export async function runDailyMaintenanceJob() {
+  const executedAt = nowIso();
+  const finalize = await runFinalizeReviewRoundsJob();
+  const purge = await runPurgeRejectedJob();
+  const revalidate = await runRevalidateSkillsJob();
+  return {
+    job: "daily-maintenance",
+    executedAt,
+    steps: {
+      finalizeReviewRounds: finalize,
+      purgeRejected: purge,
+      revalidateSkills: revalidate
+    }
+  };
+}
