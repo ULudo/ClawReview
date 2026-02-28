@@ -7,15 +7,16 @@ import {
   notFound,
   ok,
   serverError,
+  tooManyRequests,
   unauthorized
 } from "@/lib/api-response";
-import { DEFAULT_GUIDELINE_VERSION_ID, SIGNATURE_MAX_SKEW_MS_DEFAULT } from "@/lib/constants";
+import { DEFAULT_GUIDELINE_VERSION_ID, RATE_LIMITS, SIGNATURE_MAX_SKEW_MS_DEFAULT } from "@/lib/constants";
 import { fetchAndParseSkillManifest, SkillManifestError } from "@/lib/skill-md/parser";
 import {
-  adminReasonSchema,
   agentRegistrationRequestSchema,
   agentVerifyChallengeRequestSchema,
   assignmentClaimRequestSchema,
+  operatorReasonSchema,
   paperSubmissionRequestSchema,
   paperReviewCommentSubmissionSchema,
   paperVersionRequestSchema,
@@ -74,17 +75,62 @@ function signatureMaxSkewMs() {
   return Number.isFinite(value) && value > 0 ? value : SIGNATURE_MAX_SKEW_MS_DEFAULT;
 }
 
-function requireAdmin(req: NextRequest) {
-  const expected = process.env.ADMIN_TOKEN;
+function requireOperator(req: NextRequest) {
+  const expected = process.env.OPERATOR_TOKEN;
   if (!expected) {
-    return { ok: false as const, response: serverError("ADMIN_TOKEN is not configured") };
+    return { ok: false as const, response: serverError("OPERATOR_TOKEN is not configured") };
   }
   const auth = req.headers.get("authorization");
-  const token = auth?.startsWith("Bearer ") ? auth.slice(7) : req.headers.get("x-admin-token") || "";
+  const token = auth?.startsWith("Bearer ")
+    ? auth.slice(7)
+    : req.headers.get("x-operator-token") || "";
   if (token !== expected) {
-    return { ok: false as const, response: unauthorized("Invalid admin token") };
+    return { ok: false as const, response: unauthorized("Invalid operator token") };
   }
   return { ok: true as const };
+}
+
+function clientIp(req: NextRequest) {
+  const forwardedFor = req.headers.get("x-forwarded-for");
+  if (forwardedFor) {
+    return forwardedFor.split(",")[0]?.trim() || "unknown";
+  }
+  return req.headers.get("x-real-ip")?.trim() || "unknown";
+}
+
+function applyRateLimit(
+  store: Awaited<ReturnType<typeof getRuntimeStore>>,
+  key: string,
+  config: { limit: number; windowMs: number },
+  message: string
+) {
+  const result = store.consumeRateLimit(key, config.limit, config.windowMs);
+  if (!result.allowed) {
+    return tooManyRequests(message, result.retryAfterSeconds);
+  }
+  return null;
+}
+
+function applyCommonSignedWriteLimits(
+  store: Awaited<ReturnType<typeof getRuntimeStore>>,
+  agent: NonNullable<Awaited<ReturnType<typeof requireSignedAgentRequest>>["agent"]>
+) {
+  const byAgent = applyRateLimit(
+    store,
+    `write:agent:${agent.id}`,
+    RATE_LIMITS.signedWritesPerAgentPerMinute,
+    "Agent write rate exceeded"
+  );
+  if (byAgent) return byAgent;
+
+  const byDomain = applyRateLimit(
+    store,
+    `write:domain:${agent.verifiedOriginDomain}`,
+    RATE_LIMITS.signedWritesPerDomainPerMinute,
+    "Origin domain write rate exceeded"
+  );
+  if (byDomain) return byDomain;
+  return null;
 }
 
 async function requireSignedAgentRequest(req: NextRequest, bodyText: string) {
@@ -374,9 +420,9 @@ export async function GET(req: NextRequest) {
       return ok({ papers });
     }
 
-    if (segments.length === 2 && segments[0] === "admin" && segments[1] === "audit-events") {
-      const admin = requireAdmin(req);
-      if (!admin.ok) return admin.response;
+    if (segments.length === 2 && segments[0] === "operator" && segments[1] === "audit-events") {
+      const operator = requireOperator(req);
+      if (!operator.ok) return operator.response;
       return ok({ auditEvents: store.listAuditEvents() });
     }
 
@@ -395,6 +441,13 @@ export async function POST(req: NextRequest) {
     if (segments.length === 2 && segments[0] === "agents" && segments[1] === "register") {
       const replay = await maybeReplayIdempotency(req, undefined);
       if (replay) return replay;
+      const registrationRateLimit = applyRateLimit(
+        store,
+        `register:ip:${clientIp(req)}`,
+        RATE_LIMITS.registrationPerIpPer10Min,
+        "Registration rate exceeded"
+      );
+      if (registrationRateLimit) return registrationRateLimit;
 
       const parsedBody = agentRegistrationRequestSchema.safeParse(parseJsonBody<unknown>(bodyText || "{}"));
       if (!parsedBody.success) return badRequest("Invalid registration payload", parsedBody.error.flatten());
@@ -469,6 +522,13 @@ export async function POST(req: NextRequest) {
     if (segments.length === 2 && segments[0] === "agents" && segments[1] === "verify-challenge") {
       const replay = await maybeReplayIdempotency(req, undefined);
       if (replay) return replay;
+      const verifyRateLimit = applyRateLimit(
+        store,
+        `verify:ip:${clientIp(req)}`,
+        RATE_LIMITS.verifyPerIpPer10Min,
+        "Verification rate exceeded"
+      );
+      if (verifyRateLimit) return verifyRateLimit;
 
       const parsedBody = agentVerifyChallengeRequestSchema.safeParse(parseJsonBody<unknown>(bodyText || "{}"));
       if (!parsedBody.success) return badRequest("Invalid challenge verification payload", parsedBody.error.flatten());
@@ -500,6 +560,8 @@ export async function POST(req: NextRequest) {
       const agent = signed.agent;
       if (!agent) return badRequest("Unsigned dev mode cannot reverify");
       if (agent.id !== segments[1]) return forbidden("Signed agent does not match path agentId");
+      const signedRateLimit = applyCommonSignedWriteLimits(store, agent);
+      if (signedRateLimit) return signedRateLimit;
 
       const replay = await maybeReplayIdempotency(req, agent.id);
       if (replay) return replay;
@@ -525,6 +587,8 @@ export async function POST(req: NextRequest) {
       if (!signed.ok) return signed.response;
       const agent = signed.agent;
       if (!agent) return badRequest("Unsigned dev mode cannot submit papers");
+      const signedRateLimit = applyCommonSignedWriteLimits(store, agent);
+      if (signedRateLimit) return signedRateLimit;
 
       const replay = await maybeReplayIdempotency(req, agent.id);
       if (replay) return replay;
@@ -564,6 +628,8 @@ export async function POST(req: NextRequest) {
       const agent = signed.agent;
       if (!agent) return badRequest("Unsigned dev mode cannot submit paper versions");
       if (paper.publisherAgentId !== agent.id) return forbidden("Only the original publisher agent can submit a new version");
+      const signedRateLimit = applyCommonSignedWriteLimits(store, agent);
+      if (signedRateLimit) return signedRateLimit;
 
       const replay = await maybeReplayIdempotency(req, agent.id);
       if (replay) return replay;
@@ -598,6 +664,8 @@ export async function POST(req: NextRequest) {
       if (!signed.ok) return signed.response;
       const agent = signed.agent;
       if (!agent) return badRequest("Unsigned dev mode cannot claim assignments");
+      const signedRateLimit = applyCommonSignedWriteLimits(store, agent);
+      if (signedRateLimit) return signedRateLimit;
 
       const replay = await maybeReplayIdempotency(req, agent.id);
       if (replay) return replay;
@@ -615,6 +683,8 @@ export async function POST(req: NextRequest) {
       if (!signed.ok) return signed.response;
       const agent = signed.agent;
       if (!agent) return badRequest("Unsigned dev mode cannot submit reviews");
+      const signedRateLimit = applyCommonSignedWriteLimits(store, agent);
+      if (signedRateLimit) return signedRateLimit;
 
       const replay = await maybeReplayIdempotency(req, agent.id);
       if (replay) return replay;
@@ -652,6 +722,8 @@ export async function POST(req: NextRequest) {
       if (!signed.ok) return signed.response;
       const agent = signed.agent;
       if (!agent) return badRequest("Unsigned dev mode requires X-Dev-Agent-Id for this endpoint");
+      const signedRateLimit = applyCommonSignedWriteLimits(store, agent);
+      if (signedRateLimit) return signedRateLimit;
 
       const replay = await maybeReplayIdempotency(req, agent.id);
       if (replay) return replay;
@@ -659,6 +731,13 @@ export async function POST(req: NextRequest) {
       const parsedBody = paperReviewCommentSubmissionSchema.safeParse(parseJsonBody<unknown>(bodyText || "{}"));
       if (!parsedBody.success) return badRequest("Invalid paper review comment payload", parsedBody.error.flatten());
       const payload = parsedBody.data;
+      const paperCommentRateLimit = applyRateLimit(
+        store,
+        `comment:agent:${agent.id}:paper:${paperId}`,
+        RATE_LIMITS.reviewCommentsPerAgentPaperPerHour,
+        "Review comment rate exceeded for this paper"
+      );
+      if (paperCommentRateLimit) return paperCommentRateLimit;
 
       const result = store.submitPaperReviewComment({
         paperId,
@@ -671,34 +750,34 @@ export async function POST(req: NextRequest) {
       return await respondIdempotent(req, agent.id, 201, result);
     }
 
-    if (segments.length === 4 && segments[0] === "admin" && segments[1] === "agents" && ["suspend", "reactivate"].includes(segments[3])) {
-      const admin = requireAdmin(req);
-      if (!admin.ok) return admin.response;
-      const parsedBody = adminReasonSchema.safeParse(parseJsonBody<unknown>(bodyText || "{}"));
-      if (!parsedBody.success) return badRequest("Invalid admin reason payload", parsedBody.error.flatten());
+    if (segments.length === 4 && segments[0] === "operator" && segments[1] === "agents" && ["suspend", "reactivate"].includes(segments[3])) {
+      const operator = requireOperator(req);
+      if (!operator.ok) return operator.response;
+      const parsedBody = operatorReasonSchema.safeParse(parseJsonBody<unknown>(bodyText || "{}"));
+      if (!parsedBody.success) return badRequest("Invalid operator reason payload", parsedBody.error.flatten());
       const nextStatus = segments[3] === "suspend" ? "suspended" : "active";
-      const updated = store.setAgentStatus(segments[2], nextStatus, parsedBody.data.reason_code, parsedBody.data.reason_text, "human_admin");
+      const updated = store.setAgentStatus(segments[2], nextStatus, parsedBody.data.reason_code, parsedBody.data.reason_text, "human_operator");
       if (!updated) return notFound("Agent not found");
       await persistRuntimeStore(store);
       return ok({ agent: updated });
     }
 
-    if (segments.length === 4 && segments[0] === "admin" && segments[1] === "papers" && segments[3] === "quarantine") {
-      const admin = requireAdmin(req);
-      if (!admin.ok) return admin.response;
-      const parsedBody = adminReasonSchema.safeParse(parseJsonBody<unknown>(bodyText || "{}"));
-      if (!parsedBody.success) return badRequest("Invalid admin reason payload", parsedBody.error.flatten());
+    if (segments.length === 4 && segments[0] === "operator" && segments[1] === "papers" && segments[3] === "quarantine") {
+      const operator = requireOperator(req);
+      if (!operator.ok) return operator.response;
+      const parsedBody = operatorReasonSchema.safeParse(parseJsonBody<unknown>(bodyText || "{}"));
+      if (!parsedBody.success) return badRequest("Invalid operator reason payload", parsedBody.error.flatten());
       const paper = store.quarantinePaper(segments[2], parsedBody.data.reason_code, parsedBody.data.reason_text);
       if (!paper) return notFound("Paper not found");
       await persistRuntimeStore(store);
       return ok({ paper });
     }
 
-    if (segments.length === 4 && segments[0] === "admin" && segments[1] === "papers" && segments[3] === "force-reject") {
-      const admin = requireAdmin(req);
-      if (!admin.ok) return admin.response;
-      const parsedBody = adminReasonSchema.safeParse(parseJsonBody<unknown>(bodyText || "{}"));
-      if (!parsedBody.success) return badRequest("Invalid admin reason payload", parsedBody.error.flatten());
+    if (segments.length === 4 && segments[0] === "operator" && segments[1] === "papers" && segments[3] === "force-reject") {
+      const operator = requireOperator(req);
+      if (!operator.ok) return operator.response;
+      const parsedBody = operatorReasonSchema.safeParse(parseJsonBody<unknown>(bodyText || "{}"));
+      if (!parsedBody.success) return badRequest("Invalid operator reason payload", parsedBody.error.flatten());
       const result = store.forceRejectPaper(segments[2], parsedBody.data.reason_code, parsedBody.data.reason_text);
       if (!result) return notFound("Paper not found");
       await persistRuntimeStore(store);

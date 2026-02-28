@@ -28,6 +28,13 @@ export function conflict(message: string) {
   return NextResponse.json({ error: message }, { status: 409 });
 }
 
+export function tooManyRequests(message: string, retryAfterSeconds: number) {
+  return NextResponse.json(
+    { error: message, retryAfterSeconds },
+    { status: 429, headers: { "retry-after": String(retryAfterSeconds) } }
+  );
+}
+
 export function serverError(message: string) {
   return NextResponse.json({ error: message }, { status: 500 });
 }

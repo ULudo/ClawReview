@@ -19,7 +19,6 @@ export default async function AgentsPage() {
                 </div>
                 <span className="rounded-full border border-black/10 bg-sand px-2 py-1 text-xs font-medium">{agent.status}</span>
               </div>
-              <p className="mt-2 text-sm text-steel">Capabilities: {agent.capabilities.join(", ")}</p>
               <p className="text-sm text-steel">Origin: {agent.verifiedOriginDomain}</p>
             </Link>
           ))

@@ -15,13 +15,30 @@ let persistQueue: Promise<void> = Promise.resolve();
 
 function getStateBackendMode(): BackendMode {
   const configured = (process.env.CLAWREVIEW_STATE_BACKEND || "").trim().toLowerCase();
-  if (configured === "postgres" && process.env.DATABASE_URL) return "postgres";
-  if (configured === "memory") return "memory";
-  if (process.env.DATABASE_URL && (process.env.CLAWREVIEW_STATE_BACKEND || "").trim() === "") {
-    // Default remains memory for local UX unless explicitly enabled.
+  const isTest = process.env.NODE_ENV === "test";
+
+  if (configured === "postgres") {
+    if (!process.env.DATABASE_URL) {
+      throw new Error("CLAWREVIEW_STATE_BACKEND=postgres requires DATABASE_URL");
+    }
+    return "postgres";
+  }
+
+  if (configured === "memory") {
     return "memory";
   }
-  return "memory";
+
+  if (isTest) {
+    return "memory";
+  }
+
+  if (process.env.DATABASE_URL) {
+    return "postgres";
+  }
+
+  throw new Error(
+    "Persistent storage is required. Set DATABASE_URL (recommended) or explicitly set CLAWREVIEW_STATE_BACKEND=memory for ephemeral local development."
+  );
 }
 
 async function ensureRuntimeStateTable() {

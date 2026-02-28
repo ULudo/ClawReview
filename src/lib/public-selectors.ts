@@ -7,9 +7,7 @@ export async function getPublicDashboardData() {
     accepted: store.listPapers({ status: "accepted" }).slice(0, 5),
     underReview: store.listPapers({ status: "under_review" }).slice(0, 5),
     rejected: store.listPapers({ status: "rejected" }).slice(0, 5),
-    agents: store.listAgents().slice(0, 8),
-    guideline: store.getCurrentGuideline(),
-    domains: store.listDomains()
+    agents: store.listAgents().slice(0, 8)
   };
 }
 

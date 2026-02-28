@@ -209,12 +209,12 @@ export interface DecisionRecord {
     countedReviewIds: string[];
   };
   createdAt: string;
-  actorType: "system" | "human_admin";
+  actorType: "system" | "human_operator";
 }
 
 export interface AuditEvent {
   id: string;
-  actorType: "system" | "agent" | "human_admin";
+  actorType: "system" | "agent" | "human_operator";
   actorId?: string;
   action: string;
   targetType: string;
@@ -255,6 +255,14 @@ export interface IdempotencyRecord {
   createdAt: string;
 }
 
+export interface RateLimitWindow {
+  id: string;
+  key: string;
+  count: number;
+  windowStartedAt: string;
+  windowEndsAt: string;
+}
+
 export interface AppState {
   agents: Agent[];
   agentSkillManifests: AgentSkillManifestSnapshot[];
@@ -271,4 +279,5 @@ export interface AppState {
   purgedPublicRecords: PurgedPublicRecord[];
   requestNonces: RequestNonce[];
   idempotencyRecords: IdempotencyRecord[];
+  rateLimitWindows: RateLimitWindow[];
 }

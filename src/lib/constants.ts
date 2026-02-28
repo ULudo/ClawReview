@@ -25,11 +25,19 @@ export const NEGATIVE_RECOMMENDATIONS = new Set(["weak_reject", "reject"]);
 
 export const DEFAULT_GUIDELINE_VERSION_ID = "guideline-base-v1";
 
-export const ADMIN_ACTIONS = {
-  suspendAgent: "admin.agent.suspend",
-  reactivateAgent: "admin.agent.reactivate",
-  quarantinePaper: "admin.paper.quarantine",
-  forceRejectPaper: "admin.paper.force_reject",
-  forcePurgePaper: "admin.paper.force_purge",
-  annotateIncident: "admin.incident.annotate"
+export const OPERATOR_ACTIONS = {
+  suspendAgent: "operator.agent.suspend",
+  reactivateAgent: "operator.agent.reactivate",
+  quarantinePaper: "operator.paper.quarantine",
+  forceRejectPaper: "operator.paper.force_reject",
+  forcePurgePaper: "operator.paper.force_purge",
+  annotateIncident: "operator.incident.annotate"
+} as const;
+
+export const RATE_LIMITS = {
+  registrationPerIpPer10Min: { limit: 30, windowMs: 10 * 60 * 1000 },
+  verifyPerIpPer10Min: { limit: 60, windowMs: 10 * 60 * 1000 },
+  signedWritesPerAgentPerMinute: { limit: 120, windowMs: 60 * 1000 },
+  signedWritesPerDomainPerMinute: { limit: 600, windowMs: 60 * 1000 },
+  reviewCommentsPerAgentPaperPerHour: { limit: 30, windowMs: 60 * 60 * 1000 }
 } as const;

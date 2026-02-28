@@ -16,6 +16,7 @@ import type {
   DecisionRecord,
   Paper,
   PaperVersion,
+  RateLimitWindow,
   Review,
   ReviewFinding,
   ReviewRole
@@ -40,24 +41,24 @@ export class MemoryStore {
   state: AppState;
 
   constructor(initialState?: AppState) {
-    this.state = initialState
-      ? (JSON.parse(JSON.stringify(initialState)) as AppState)
-      : {
-      agents: [],
-      agentSkillManifests: [],
-      agentVerificationChallenges: [],
-      papers: [],
-      paperVersions: [],
-      assignments: [],
-      reviews: [],
-      paperReviewComments: [],
-      decisions: [],
-      guidelines: [createDefaultGuideline()],
-      domains: DEFAULT_DOMAINS,
-      auditEvents: [],
-      purgedPublicRecords: [],
-      requestNonces: [],
-      idempotencyRecords: []
+    const baseState = initialState ? (JSON.parse(JSON.stringify(initialState)) as Partial<AppState>) : {};
+    this.state = {
+      agents: baseState.agents ?? [],
+      agentSkillManifests: baseState.agentSkillManifests ?? [],
+      agentVerificationChallenges: baseState.agentVerificationChallenges ?? [],
+      papers: baseState.papers ?? [],
+      paperVersions: baseState.paperVersions ?? [],
+      assignments: baseState.assignments ?? [],
+      reviews: baseState.reviews ?? [],
+      paperReviewComments: baseState.paperReviewComments ?? [],
+      decisions: baseState.decisions ?? [],
+      guidelines: baseState.guidelines ?? [createDefaultGuideline()],
+      domains: baseState.domains ?? DEFAULT_DOMAINS,
+      auditEvents: baseState.auditEvents ?? [],
+      purgedPublicRecords: baseState.purgedPublicRecords ?? [],
+      requestNonces: baseState.requestNonces ?? [],
+      idempotencyRecords: baseState.idempotencyRecords ?? [],
+      rateLimitWindows: baseState.rateLimitWindows ?? []
     };
   }
 
@@ -287,6 +288,36 @@ export class MemoryStore {
     };
     this.state.idempotencyRecords.push(record);
     return record;
+  }
+
+  private pruneExpiredRateLimits(nowMs = Date.now()) {
+    this.state.rateLimitWindows = this.state.rateLimitWindows.filter((w) => new Date(w.windowEndsAt).getTime() > nowMs);
+  }
+
+  consumeRateLimit(key: string, limit: number, windowMs: number) {
+    const nowMs = Date.now();
+    this.pruneExpiredRateLimits(nowMs);
+    const existing = this.state.rateLimitWindows.find((window) => window.key === key);
+
+    if (!existing) {
+      const start = nowIso();
+      this.state.rateLimitWindows.push({
+        id: randomId("ratelimit"),
+        key,
+        count: 1,
+        windowStartedAt: start,
+        windowEndsAt: addMs(start, windowMs)
+      } satisfies RateLimitWindow);
+      return { allowed: true as const, retryAfterSeconds: 0 };
+    }
+
+    if (existing.count >= limit) {
+      const retryAfterSeconds = Math.max(1, Math.ceil((new Date(existing.windowEndsAt).getTime() - nowMs) / 1000));
+      return { allowed: false as const, retryAfterSeconds };
+    }
+
+    existing.count += 1;
+    return { allowed: true as const, retryAfterSeconds: 0 };
   }
 
   private createAssignmentsForVersion(paper: Paper, version: PaperVersion): Assignment[] {
@@ -525,12 +556,11 @@ export class MemoryStore {
   listOpenAssignmentsForAgent(agentId: string) {
     const agent = this.getAgent(agentId);
     if (!agent || agent.status !== "active") return [];
-    const agentCaps = new Set(agent.capabilities);
     const nowMs = Date.now();
     return this.state.assignments.filter((a) => {
       if (a.status !== "open") return false;
       if (new Date(a.expiresAt).getTime() <= nowMs) return false;
-      return agentCaps.has(a.requiredCapability) || agentCaps.has("reviewer");
+      return true;
     });
   }
 
@@ -540,10 +570,6 @@ export class MemoryStore {
     if (assignment.status !== "open") return { error: "Assignment is not open" as const };
     const agent = this.getAgent(agentId);
     if (!agent || agent.status !== "active") return { error: "Agent is not active" as const };
-    const caps = new Set(agent.capabilities);
-    if (!(caps.has(assignment.requiredCapability) || caps.has("reviewer"))) {
-      return { error: `Agent lacks capability ${assignment.requiredCapability}` as const };
-    }
     assignment.status = "claimed";
     assignment.claimedByAgentId = agentId;
     assignment.claimedAt = nowIso();
@@ -710,8 +736,8 @@ export class MemoryStore {
     paper.quarantinedAt = nowIso();
     paper.updatedAt = nowIso();
     this.audit({
-      actorType: "human_admin",
-      action: "admin.paper.quarantine",
+      actorType: "human_operator",
+      action: "operator.paper.quarantine",
       targetType: "paper",
       targetId: paperId,
       reasonCode,
@@ -727,10 +753,10 @@ export class MemoryStore {
     if (!version) return null;
     const reviews = this.listReviewsForVersion(version.id);
     const evaluation = evaluateDecision({ version, reviews, forceReject: true, forceRejectReason: `${reasonCode}: ${reasonText}` });
-    const record = this.applyDecision(paper, version, "rejected", evaluation.reason, evaluation.snapshot, "human_admin");
+    const record = this.applyDecision(paper, version, "rejected", evaluation.reason, evaluation.snapshot, "human_operator");
     this.audit({
-      actorType: "human_admin",
-      action: "admin.paper.force_reject",
+      actorType: "human_operator",
+      action: "operator.paper.force_reject",
       targetType: "paper",
       targetId: paperId,
       reasonCode,

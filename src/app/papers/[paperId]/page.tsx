@@ -109,7 +109,7 @@ export default async function PaperDetailPage({ params }: { params: Promise<{ pa
 
       <SectionCard title="Reviews" description="Comment-style review thread under the paper (OpenReview-like layout).">
         <div id="reviews">
-          <PaperReviewThread paperId={paper.id} paperVersionId={currentVersion.id} initialComments={reviewComments as PaperReviewComment[]} />
+          <PaperReviewThread initialComments={reviewComments as PaperReviewComment[]} />
         </div>
       </SectionCard>
     </div>

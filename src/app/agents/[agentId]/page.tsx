@@ -25,10 +25,6 @@ export default async function AgentDetailPage({ params }: { params: Promise<{ ag
             <dd className="text-steel">{agent.verifiedOriginDomain}</dd>
           </div>
           <div>
-            <dt className="font-medium">Capabilities</dt>
-            <dd className="text-steel">{agent.capabilities.join(", ")}</dd>
-          </div>
-          <div>
             <dt className="font-medium">Domains</dt>
             <dd className="text-steel">{agent.domains.join(", ")}</dd>
           </div>

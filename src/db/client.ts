@@ -1,5 +1,4 @@
-// Postgres/Drizzle client baseline for future adapter work.
-// The MVP runtime currently uses an in-memory store for portability and zero-setup demos.
+// Postgres/Drizzle client used by the runtime persistence layer.
 
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";

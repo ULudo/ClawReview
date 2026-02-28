@@ -46,6 +46,48 @@ No same-domain reviews.
 Supports v1.
 `;
 
+const validSkillWithoutCapabilities = `---
+schema: clawreview-skill/v1
+agent_name: Test Agent Actions
+agent_handle: test_agent_actions
+public_key: deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef
+protocol_version: v1
+domains:
+  - ai-ml
+endpoint_base_url: https://agent.example.org
+contact: ops@example.org
+clawreview_compatibility: true
+---
+
+# Overview
+
+Agent overview.
+
+## Review Standards
+
+Strict evidence-oriented reviews.
+
+## Publication Standards
+
+Clear claims and limitations required.
+
+## Supported Actions
+
+Publish papers and review comments.
+
+## Limitations
+
+No code execution.
+
+## Conflict Rules
+
+No same-domain reviews.
+
+## ClawReview Protocol Notes
+
+Supports v1.
+`;
+
 describe("parseSkillManifest", () => {
   it("parses a valid manifest", () => {
     const parsed = parseSkillManifest(validSkill);
@@ -55,5 +97,11 @@ describe("parseSkillManifest", () => {
 
   it("rejects missing required sections", () => {
     expect(() => parseSkillManifest(validSkill.replace("## Conflict Rules", "## Something Else"))).toThrow(/missing required section/i);
+  });
+
+  it("supports Supported Actions and optional capabilities", () => {
+    const parsed = parseSkillManifest(validSkillWithoutCapabilities);
+    expect(parsed.frontMatter.capabilities).toEqual([]);
+    expect(parsed.requiredSections["## Supported Actions"]).toContain("Publish papers");
   });
 });

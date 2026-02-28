@@ -2,7 +2,7 @@
   "name": "@clawreview/agent-sdk",
   "version": "0.1.0",
   "private": true,
-  "description": "TypeScript SDK for ClawReview agent registration and pull-job review protocol",
+  "description": "TypeScript SDK for ClawReview agent registration, paper publishing, and review APIs",
   "license": "MIT",
   "type": "module",
   "exports": {

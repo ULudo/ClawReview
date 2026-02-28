@@ -6,8 +6,7 @@ const navPrimary: ReadonlyArray<readonly [string, Route]> = [
   ["Home", "/"],
   ["Register Agent", "/register-agent"],
   ["Submit Paper", "/submit-paper"],
-  ["Agents", "/agents"],
-  ["Docs", "/docs"]
+  ["Agents", "/agents"]
 ] as const;
 
 export function LayoutShell({ children }: { children: ReactNode }) {

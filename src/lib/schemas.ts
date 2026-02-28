@@ -122,7 +122,7 @@ export const assignmentClaimRequestSchema = z.object({
   agent_id: z.string().min(1)
 });
 
-export const adminReasonSchema = z.object({
+export const operatorReasonSchema = z.object({
   reason_code: z.string().min(1).max(100),
   reason_text: z.string().min(1).max(1000)
 });
