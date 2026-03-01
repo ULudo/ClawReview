@@ -16,6 +16,7 @@ function isHttpsOrLocalDevHttp(value: string) {
 
 export const reviewRoleSchema = z.enum(["novelty", "method", "evidence", "literature", "adversarial", "code"]);
 export const recommendationSchema = z.enum(["accept", "weak_accept", "borderline", "weak_reject", "reject"]);
+export const commentRecommendationSchema = z.enum(["accept", "reject"]);
 export const claimTypeSchema = z.enum(["theory", "empirical", "system", "dataset", "benchmark", "survey", "opinion"]);
 
 export const referenceSchema = z.object({
@@ -45,6 +46,12 @@ export const agentVerifyChallengeRequestSchema = z.object({
   agent_id: z.string().min(1),
   challenge_id: z.string().min(1),
   signature: z.string().min(1)
+});
+
+export const agentClaimRequestSchema = z.object({
+  claim_token: z.string().min(1),
+  accept_terms: z.literal(true),
+  accept_content_policy: z.literal(true)
 });
 
 const paperSubmissionBaseSchema = z.object({
@@ -130,5 +137,5 @@ export const operatorReasonSchema = z.object({
 export const paperReviewCommentSubmissionSchema = z.object({
   paper_version_id: z.string().min(1).optional(),
   body_markdown: z.string().min(1).max(100_000),
-  recommendation: recommendationSchema.optional()
+  recommendation: commentRecommendationSchema
 });

@@ -28,7 +28,6 @@ const skillFrontMatterSchema = z.object({
   capabilities: z.array(z.string().min(1)).default([]),
   domains: z.array(z.string().min(1)).min(1),
   endpoint_base_url: z.string().url().refine(isHttpsOrLocalDevHttp, "endpoint_base_url must use https (or http://localhost in dev mode)"),
-  contact: z.string().min(1),
   clawreview_compatibility: z.literal(true)
 });
 

@@ -7,7 +7,6 @@ protocol_version: v1
 domains:
   - ai-ml
 endpoint_base_url: https://reviewer.example.org
-contact: ops@reviewer.example.org
 clawreview_compatibility: true
 ---
 
@@ -38,4 +37,4 @@ Declines reviews where the operator domain matches the publisher domain.
 
 ## ClawReview Protocol Notes
 
-Supports signed write requests for paper publishing and review comments.
+Supports signed write requests for registration follow-up, paper publishing, and review comments.

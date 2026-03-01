@@ -13,6 +13,7 @@ import {
 import { DEFAULT_GUIDELINE_VERSION_ID, RATE_LIMITS, SIGNATURE_MAX_SKEW_MS_DEFAULT } from "@/lib/constants";
 import { fetchAndParseSkillManifest, SkillManifestError } from "@/lib/skill-md/parser";
 import {
+  agentClaimRequestSchema,
   agentRegistrationRequestSchema,
   agentVerifyChallengeRequestSchema,
   assignmentClaimRequestSchema,
@@ -220,6 +221,14 @@ function validateKnownDomainsWithStore(store: Awaited<ReturnType<typeof getRunti
   return { valid: unknown.length === 0, unknown };
 }
 
+function getPublicAppUrl(req: NextRequest) {
+  const configured = process.env.NEXT_PUBLIC_APP_URL?.trim();
+  if (configured) {
+    return configured.replace(/\/+$/, "");
+  }
+  return req.nextUrl.origin.replace(/\/+$/, "");
+}
+
 function normalizePaperManuscript(input: {
   content_sections?: Record<string, string>;
   manuscript?: { format: "markdown" | "latex"; source: string };
@@ -298,6 +307,25 @@ export async function GET(req: NextRequest) {
       const manifest = store.getLatestAgentManifest(segments[1]);
       if (!manifest) return notFound("Skill manifest not found");
       return ok({ manifest });
+    }
+
+    if (segments.length === 3 && segments[0] === "agents" && segments[1] === "claim") {
+      const claimToken = decodeURIComponent(segments[2]);
+      const ticket = store.getAgentClaimTicketByToken(claimToken);
+      if (!ticket) return notFound("Claim ticket not found");
+      const agent = store.getAgent(ticket.agentId);
+      if (!agent) return notFound("Agent not found");
+      return ok({
+        claim: {
+          ticketId: ticket.id,
+          agentId: agent.id,
+          agentName: agent.name,
+          agentHandle: agent.handle,
+          status: ticket.fulfilledAt ? "fulfilled" : "pending",
+          expiresAt: ticket.expiresAt,
+          fulfilledAt: ticket.fulfilledAt ?? null
+        }
+      });
     }
 
     if (segments.length === 4 && segments[0] === "agents" && segments[2] === "skill-manifest" && segments[3] === "history") {
@@ -504,12 +532,20 @@ export async function POST(req: NextRequest) {
       });
 
       const challenge = store.createAgentVerificationChallenge(agent.id);
+      const claimTicket = store.createAgentClaimTicket(agent.id);
+      if (!claimTicket) return serverError("Failed to create claim ticket");
+      const appBaseUrl = getPublicAppUrl(req);
       const responseBody = {
         agent,
         challenge: {
           id: challenge.id,
           message: challenge.message,
           expiresAt: challenge.expiresAt
+        },
+        claim: {
+          id: claimTicket.id,
+          expiresAt: claimTicket.expiresAt,
+          claimUrl: `${appBaseUrl}/claim/${encodeURIComponent(claimTicket.token)}`
         },
         manifest: {
           hash: snapshot.hash,
@@ -549,9 +585,48 @@ export async function POST(req: NextRequest) {
       if (!valid) return unauthorized("Invalid challenge signature");
 
       const activated = store.fulfillAgentVerification(agent.id, challenge.id);
-      if (!activated) return serverError("Failed to activate agent");
-      const responseBody = { agent: activated };
+      if (!activated) return serverError("Failed to verify agent challenge");
+      const responseBody = {
+        agent: activated,
+        verification: {
+          challengeVerified: Boolean(activated.challengeVerifiedAt),
+          humanClaimed: Boolean(activated.humanClaimedAt),
+          active: activated.status === "active"
+        }
+      };
       return await respondIdempotent(req, undefined, 200, responseBody);
+    }
+
+    if (segments.length === 2 && segments[0] === "agents" && segments[1] === "claim") {
+      const replay = await maybeReplayIdempotency(req, undefined);
+      if (replay) return replay;
+      const claimRateLimit = applyRateLimit(
+        store,
+        `claim:ip:${clientIp(req)}`,
+        RATE_LIMITS.claimPerIpPer10Min,
+        "Claim rate exceeded"
+      );
+      if (claimRateLimit) return claimRateLimit;
+
+      const parsedBody = agentClaimRequestSchema.safeParse(parseJsonBody<unknown>(bodyText || "{}"));
+      if (!parsedBody.success) return badRequest("Invalid claim payload", parsedBody.error.flatten());
+      const payload = parsedBody.data;
+      const result = store.fulfillAgentHumanClaim(payload.claim_token);
+      if ("error" in result) {
+        const errorMessage = result.error ?? "Claim failed";
+        if (errorMessage === "Claim ticket not found") return notFound(errorMessage);
+        if (errorMessage === "Claim ticket expired") return unauthorized(errorMessage);
+        if (errorMessage === "Claim ticket already fulfilled") return conflict(errorMessage);
+        return badRequest(errorMessage);
+      }
+      return await respondIdempotent(req, undefined, 200, {
+        agent: result.agent,
+        claim: {
+          ticketId: result.ticket.id,
+          fulfilledAt: result.ticket.fulfilledAt,
+          active: result.agent.status === "active"
+        }
+      });
     }
 
     if (segments.length === 3 && segments[0] === "agents" && segments[2] === "reverify") {

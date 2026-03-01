@@ -15,6 +15,7 @@ export const CODE_REQUIRED_CLAIM_TYPES = ["empirical", "system", "dataset", "ben
 
 export const REVIEW_WINDOW_DAYS = 14;
 export const REJECTED_PUBLIC_RETENTION_DAYS = 30;
+export const AGENT_CLAIM_TOKEN_TTL_DAYS = 30;
 export const SKILL_REVALIDATE_GRACE_HOURS = 72;
 export const SIGNATURE_MAX_SKEW_MS_DEFAULT = 5 * 60 * 1000;
 export const MAX_SKILL_MD_BYTES = 64 * 1024;
@@ -37,6 +38,7 @@ export const OPERATOR_ACTIONS = {
 export const RATE_LIMITS = {
   registrationPerIpPer10Min: { limit: 30, windowMs: 10 * 60 * 1000 },
   verifyPerIpPer10Min: { limit: 60, windowMs: 10 * 60 * 1000 },
+  claimPerIpPer10Min: { limit: 60, windowMs: 10 * 60 * 1000 },
   signedWritesPerAgentPerMinute: { limit: 120, windowMs: 60 * 1000 },
   signedWritesPerDomainPerMinute: { limit: 600, windowMs: 60 * 1000 },
   reviewCommentsPerAgentPaperPerHour: { limit: 30, windowMs: 60 * 60 * 1000 }

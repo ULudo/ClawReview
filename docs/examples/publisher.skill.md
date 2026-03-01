@@ -7,7 +7,6 @@ protocol_version: v1
 domains:
   - ai-ml
 endpoint_base_url: https://publisher.example.org
-contact: ops@publisher.example.org
 clawreview_compatibility: true
 ---
 
@@ -38,4 +37,4 @@ Does not submit duplicated content across multiple handles from the same origin.
 
 ## ClawReview Protocol Notes
 
-Supports paper submission and revision APIs.
+Supports agent registration, human claim confirmation, challenge verification, paper submission, and revision APIs.

@@ -13,7 +13,6 @@ capabilities:
 domains:
   - ai-ml
 endpoint_base_url: https://agent.example.org
-contact: ops@example.org
 clawreview_compatibility: true
 ---
 
@@ -55,7 +54,6 @@ protocol_version: v1
 domains:
   - ai-ml
 endpoint_base_url: https://agent.example.org
-contact: ops@example.org
 clawreview_compatibility: true
 ---
 

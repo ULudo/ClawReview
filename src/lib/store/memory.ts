@@ -1,4 +1,5 @@
 import {
+  AGENT_CLAIM_TOKEN_TTL_DAYS,
   DEFAULT_GUIDELINE_VERSION_ID,
   NONCE_TTL_MS,
   REJECTED_PUBLIC_RETENTION_DAYS,
@@ -8,6 +9,7 @@ import { evaluateDecision, getRequiredRolesForVersion } from "@/lib/decision-eng
 import { createDefaultGuideline, DEFAULT_DOMAINS } from "@/lib/seed-data";
 import type {
   Agent,
+  AgentClaimTicket,
   AgentSkillManifestSnapshot,
   AgentVerificationChallenge,
   AppState,
@@ -44,6 +46,7 @@ export class MemoryStore {
     const baseState = initialState ? (JSON.parse(JSON.stringify(initialState)) as Partial<AppState>) : {};
     this.state = {
       agents: baseState.agents ?? [],
+      agentClaimTickets: baseState.agentClaimTickets ?? [],
       agentSkillManifests: baseState.agentSkillManifests ?? [],
       agentVerificationChallenges: baseState.agentVerificationChallenges ?? [],
       papers: baseState.papers ?? [],
@@ -60,6 +63,15 @@ export class MemoryStore {
       idempotencyRecords: baseState.idempotencyRecords ?? [],
       rateLimitWindows: baseState.rateLimitWindows ?? []
     };
+    this.migrateLegacyState();
+  }
+
+  private migrateLegacyState() {
+    for (const agent of this.state.agents) {
+      if ((agent.status as string) === "pending_verification") {
+        agent.status = agent.humanClaimedAt ? "pending_agent_verification" : "pending_claim";
+      }
+    }
   }
 
   private audit(event: Omit<AuditEvent, "id" | "createdAt">): AuditEvent {
@@ -114,6 +126,23 @@ export class MemoryStore {
     return this.state.agents.find((a) => a.handle === handle) ?? null;
   }
 
+  private reconcileAgentActivationStatus(agent: Agent) {
+    if (agent.status === "suspended" || agent.status === "deactivated" || agent.status === "invalid_manifest") {
+      return;
+    }
+    if (agent.humanClaimedAt && agent.challengeVerifiedAt) {
+      agent.status = "active";
+      agent.lastVerifiedAt = agent.challengeVerifiedAt;
+      agent.lastSkillRevalidatedAt = nowIso();
+      return;
+    }
+    agent.status = agent.humanClaimedAt ? "pending_agent_verification" : "pending_claim";
+  }
+
+  private clearOpenClaimTickets(agentId: string) {
+    this.state.agentClaimTickets = this.state.agentClaimTickets.filter((ticket) => !(ticket.agentId === agentId && !ticket.fulfilledAt));
+  }
+
   createOrReplacePendingAgent(params: NewAgentParams) {
     const existing = this.findAgentByHandle(params.handle);
     const timestamp = nowIso();
@@ -129,7 +158,11 @@ export class MemoryStore {
       existing.protocolVersion = params.protocolVersion;
       existing.contactEmail = params.contactEmail;
       existing.contactUrl = params.contactUrl;
-      existing.status = "pending_verification";
+      existing.status = "pending_claim";
+      existing.humanClaimedAt = undefined;
+      existing.challengeVerifiedAt = undefined;
+      existing.lastVerifiedAt = undefined;
+      existing.lastSkillRevalidatedAt = undefined;
       existing.updatedAt = timestamp;
       existing.lastSkillFetchFailedAt = undefined;
       agent = existing;
@@ -138,7 +171,7 @@ export class MemoryStore {
         id: randomId("agent"),
         name: params.name,
         handle: params.handle,
-        status: "pending_verification",
+        status: "pending_claim",
         publicKey: params.publicKey,
         endpointBaseUrl: params.endpointBaseUrl,
         skillMdUrl: params.skillMdUrl,
@@ -153,6 +186,7 @@ export class MemoryStore {
       };
       this.state.agents.push(agent);
     }
+    this.clearOpenClaimTickets(agent.id);
     this.audit({
       actorType: "system",
       action: "agent.registration.pending",
@@ -192,6 +226,59 @@ export class MemoryStore {
     return snapshot;
   }
 
+  createAgentClaimTicket(agentId: string): AgentClaimTicket | null {
+    const agent = this.getAgent(agentId);
+    if (!agent) return null;
+    this.clearOpenClaimTickets(agentId);
+    const now = nowIso();
+    const ticket: AgentClaimTicket = {
+      id: randomId("claim"),
+      agentId,
+      token: randomId("claimtok"),
+      createdAt: now,
+      expiresAt: addDays(now, AGENT_CLAIM_TOKEN_TTL_DAYS)
+    };
+    this.state.agentClaimTickets.push(ticket);
+    this.audit({
+      actorType: "system",
+      action: "agent.claim_ticket.created",
+      targetType: "agent_claim_ticket",
+      targetId: ticket.id,
+      metadata: { agentId }
+    });
+    return ticket;
+  }
+
+  getAgentClaimTicketByToken(token: string) {
+    return this.state.agentClaimTickets.find((ticket) => ticket.token === token) ?? null;
+  }
+
+  getAgentClaimTicketById(ticketId: string) {
+    return this.state.agentClaimTickets.find((ticket) => ticket.id === ticketId) ?? null;
+  }
+
+  fulfillAgentHumanClaim(claimToken: string) {
+    const ticket = this.getAgentClaimTicketByToken(claimToken);
+    if (!ticket) return { error: "Claim ticket not found" as const };
+    if (ticket.fulfilledAt) return { error: "Claim ticket already fulfilled" as const };
+    if (new Date(ticket.expiresAt).getTime() <= Date.now()) return { error: "Claim ticket expired" as const };
+    const agent = this.getAgent(ticket.agentId);
+    if (!agent) return { error: "Agent not found" as const };
+
+    ticket.fulfilledAt = nowIso();
+    agent.humanClaimedAt = nowIso();
+    this.reconcileAgentActivationStatus(agent);
+    agent.updatedAt = nowIso();
+    this.audit({
+      actorType: "human_operator",
+      action: "agent.claimed_by_human",
+      targetType: "agent",
+      targetId: agent.id,
+      metadata: { claimTicketId: ticket.id }
+    });
+    return { agent, ticket };
+  }
+
   createAgentVerificationChallenge(agentId: string): AgentVerificationChallenge {
     const createdAt = nowIso();
     const challenge: AgentVerificationChallenge = {
@@ -217,9 +304,8 @@ export class MemoryStore {
       return null;
     }
     challenge.fulfilledAt = nowIso();
-    agent.status = "active";
-    agent.lastVerifiedAt = nowIso();
-    agent.lastSkillRevalidatedAt = nowIso();
+    agent.challengeVerifiedAt = nowIso();
+    this.reconcileAgentActivationStatus(agent);
     agent.updatedAt = nowIso();
     this.audit({
       actorType: "system",
@@ -233,7 +319,11 @@ export class MemoryStore {
   setAgentStatus(agentId: string, status: Agent["status"], reasonCode?: string, reasonText?: string, actorType: AuditEvent["actorType"] = "system") {
     const agent = this.getAgent(agentId);
     if (!agent) return null;
-    agent.status = status;
+    if (status === "active") {
+      this.reconcileAgentActivationStatus(agent);
+    } else {
+      agent.status = status;
+    }
     agent.updatedAt = nowIso();
     this.audit({
       actorType,
@@ -521,7 +611,7 @@ export class MemoryStore {
     paperVersionId?: string;
     reviewerAgentId: string;
     bodyMarkdown: string;
-    recommendation?: "accept" | "weak_accept" | "borderline" | "weak_reject" | "reject";
+    recommendation: "accept" | "reject";
   }) {
     const paper = this.getPaper(input.paperId);
     if (!paper) return { error: "Paper not found" as const };
@@ -550,7 +640,8 @@ export class MemoryStore {
       targetId: comment.id,
       metadata: { paperId: paper.id, paperVersionId: version.id }
     });
-    return { comment };
+    const decision = this.recomputePaperDecision(paper.id, version.id);
+    return { comment, decision };
   }
 
   listOpenAssignmentsForAgent(agentId: string) {
@@ -691,13 +782,59 @@ export class MemoryStore {
     return record;
   }
 
+  private evaluateCommentThreadDecision(version: PaperVersion) {
+    const comments = this.listPaperReviewCommentsForVersion(version.id).filter((comment) => comment.recommendation);
+    if (!comments.length) return null;
+
+    const firstByDomain = new Map<string, (typeof comments)[number]>();
+    for (const comment of comments) {
+      if (!firstByDomain.has(comment.reviewerOriginDomain)) {
+        firstByDomain.set(comment.reviewerOriginDomain, comment);
+      }
+    }
+    const counted = Array.from(firstByDomain.values());
+    const positiveCount = counted.filter((comment) => comment.recommendation === "accept").length;
+    const negativeCount = counted.filter((comment) => comment.recommendation === "reject").length;
+    const snapshot: DecisionRecord["snapshot"] = {
+      requiredRoles: [],
+      coveredRoles: [],
+      positiveCount,
+      negativeCount,
+      openCriticalCount: 0,
+      countedReviewIds: counted.map((comment) => comment.id)
+    };
+
+    if (negativeCount >= 3) {
+      return {
+        nextStatus: "rejected" as const,
+        reason: "Reached comment review reject threshold (3 counted rejects)",
+        snapshot
+      };
+    }
+
+    if (positiveCount >= 5) {
+      return {
+        nextStatus: "accepted" as const,
+        reason: "Reached comment review accept threshold (5 counted accepts)",
+        snapshot
+      };
+    }
+
+    return {
+      nextStatus: "under_review" as const,
+      reason: "Awaiting more comment reviews",
+      snapshot
+    };
+  }
+
   recomputePaperDecision(paperId: string, paperVersionId?: string) {
     const paper = this.getPaper(paperId);
     if (!paper) return null;
     const version = this.getPaperVersion(paperVersionId ?? paper.currentVersionId);
     if (!version) return null;
+    const commentEvaluation = this.evaluateCommentThreadDecision(version);
     const reviews = this.listReviewsForVersion(version.id);
-    const evaluation = evaluateDecision({ version, reviews });
+    const evaluation = commentEvaluation ?? evaluateDecision({ version, reviews });
 
     if (paper.latestStatus === "quarantined") {
       return null;
@@ -805,7 +942,7 @@ export class MemoryStore {
     agent.lastSkillRevalidatedAt = nowIso();
     agent.lastSkillFetchFailedAt = undefined;
     if (agent.status === "suspended" || agent.status === "invalid_manifest") {
-      agent.status = "active";
+      this.reconcileAgentActivationStatus(agent);
     }
     agent.updatedAt = nowIso();
     this.audit({

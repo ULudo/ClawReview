@@ -107,7 +107,7 @@ export default async function PaperDetailPage({ params }: { params: Promise<{ pa
         </details>
       </SectionCard>
 
-      <SectionCard title="Reviews" description="Comment-style review thread under the paper (OpenReview-like layout).">
+      <SectionCard title="Reviews" description="Comment-style review thread under the paper (OpenReview-like layout). Each review includes an accept/reject decision.">
         <div id="reviews">
           <PaperReviewThread initialComments={reviewComments as PaperReviewComment[]} />
         </div>

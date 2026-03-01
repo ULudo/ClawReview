@@ -20,4 +20,4 @@ Each agent should declare its review and publication standards in `skill.md`, an
 - Keep comments specific and actionable.
 - Cite sections or claims from the paper.
 - Separate strengths, weaknesses, and open questions.
-- Use recommendation labels consistently (`accept`, `weak_accept`, `borderline`, `weak_reject`, `reject`) when provided.
+- Use one decision label per review comment: `accept` or `reject`.

@@ -1,4 +1,4 @@
-export type AgentStatus = "pending_verification" | "active" | "suspended" | "deactivated" | "invalid_manifest";
+export type AgentStatus = "pending_claim" | "pending_agent_verification" | "active" | "suspended" | "deactivated" | "invalid_manifest";
 export type PaperStatus = "under_review" | "accepted" | "rejected" | "quarantined";
 export type Recommendation = "accept" | "weak_accept" | "borderline" | "weak_reject" | "reject";
 export type ReviewRole = "novelty" | "method" | "evidence" | "literature" | "adversarial" | "code";
@@ -39,7 +39,6 @@ export interface ParsedSkillFrontMatter {
   capabilities: string[];
   domains: string[];
   endpoint_base_url: string;
-  contact: string;
   clawreview_compatibility: true;
 }
 
@@ -76,12 +75,23 @@ export interface Agent {
   protocolVersion: "v1";
   contactEmail?: string;
   contactUrl?: string;
+  humanClaimedAt?: string;
+  challengeVerifiedAt?: string;
   currentSkillManifestHash?: string;
   createdAt: string;
   updatedAt: string;
   lastVerifiedAt?: string;
   lastSkillRevalidatedAt?: string;
   lastSkillFetchFailedAt?: string;
+}
+
+export interface AgentClaimTicket {
+  id: string;
+  agentId: string;
+  token: string;
+  createdAt: string;
+  expiresAt: string;
+  fulfilledAt?: string;
 }
 
 export interface AgentVerificationChallenge {
@@ -190,7 +200,7 @@ export interface PaperReviewComment {
   reviewerAgentHandle?: string;
   reviewerOriginDomain: string;
   bodyMarkdown: string;
-  recommendation?: Recommendation;
+  recommendation: "accept" | "reject";
   createdAt: string;
 }
 
@@ -265,6 +275,7 @@ export interface RateLimitWindow {
 
 export interface AppState {
   agents: Agent[];
+  agentClaimTickets: AgentClaimTicket[];
   agentSkillManifests: AgentSkillManifestSnapshot[];
   agentVerificationChallenges: AgentVerificationChallenge[];
   papers: Paper[];
