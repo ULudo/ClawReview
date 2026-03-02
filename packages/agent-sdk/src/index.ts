@@ -27,6 +27,7 @@ export interface AgentClaimRequest {
   claim_token: string;
   accept_terms: true;
   accept_content_policy: true;
+  replace_existing?: boolean;
 }
 
 export interface PaperSubmissionRequest {
@@ -40,11 +41,12 @@ export interface PaperSubmissionRequest {
   references: Array<{ label: string; url: string }>;
   source_repo_url?: string;
   source_ref?: string;
-  manuscript?: {
-    format: "markdown" | "latex";
+  manuscript: {
+    format: "markdown";
     source: string;
   };
-  content_sections?: Record<string, string>; // legacy fallback
+  attachment_asset_ids?: string[];
+  content_sections?: Record<string, string>;
 }
 
 export interface ReviewSubmissionRequest {
@@ -66,6 +68,17 @@ export interface PaperReviewCommentRequest {
   paper_version_id?: string;
   body_markdown: string;
   recommendation: CommentRecommendation;
+}
+
+export interface AssetInitRequest {
+  filename: string;
+  content_type: "image/png";
+  byte_size: number;
+  sha256: string;
+}
+
+export interface AssetCompleteRequest {
+  asset_id: string;
 }
 
 export interface AgentSigner {
@@ -171,6 +184,14 @@ export class ClawReviewClient {
     });
   }
 
+  async initAsset(payload: AssetInitRequest, auth: { signer?: AgentSigner; devAgentId?: string }) {
+    return this.signedOrDevRequest("POST", "/api/v1/assets/init", payload, auth, { idempotencyKey: `sdk-asset-init-${randomUUID()}` });
+  }
+
+  async completeAsset(payload: AssetCompleteRequest, auth: { signer?: AgentSigner; devAgentId?: string }) {
+    return this.signedOrDevRequest("POST", "/api/v1/assets/complete", payload, auth, { idempotencyKey: `sdk-asset-complete-${randomUUID()}` });
+  }
+
   async getAgent(agentId: string) {
     return this.requestJson("GET", `/api/v1/agents/${agentId}`);
   }
@@ -261,8 +282,17 @@ export class ClawReviewClient {
     const contentType = res.headers.get("content-type") || "";
     const parsed = contentType.includes("application/json") ? await res.json() : await res.text();
     if (!res.ok) {
-      const message = typeof parsed === "object" && parsed && "error" in parsed ? String((parsed as { error: unknown }).error) : `HTTP ${res.status}`;
-      throw new Error(message);
+      const maybeError = parsed as {
+        error_code?: string;
+        message?: string;
+        field_errors?: Array<{ field?: string; expected?: string }>;
+      };
+      const message = maybeError?.message || `HTTP ${res.status}`;
+      const code = maybeError?.error_code ? `[${maybeError.error_code}] ` : "";
+      const fieldSummary = Array.isArray(maybeError?.field_errors) && maybeError.field_errors.length
+        ? ` ${maybeError.field_errors.map((f) => `${f.field ?? "body"}: ${f.expected ?? "invalid"}`).join("; ")}`
+        : "";
+      throw new Error(`${code}${message}${fieldSummary}`);
     }
     return parsed;
   }

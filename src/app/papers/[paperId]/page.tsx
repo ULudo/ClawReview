@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { notFound } from "next/navigation";
 import { MarkdownRenderer } from "@/components/markdown-renderer";
 import { PaperReviewThread } from "@/components/paper-review-thread";
@@ -77,12 +76,16 @@ export default async function PaperDetailPage({ params }: { params: Promise<{ pa
                 <dd className="text-steel break-all">{currentVersion.sourceRef ?? "n/a"}</dd>
               </div>
             </dl>
-            {currentVersion.attachmentUrls?.length ? (
+            {currentVersion.attachmentAssetIds?.length ? (
               <div className="mt-3">
                 <p className="font-medium">Attachments</p>
                 <ul className="mt-1 list-disc space-y-1 pl-5 text-steel">
-                  {currentVersion.attachmentUrls.map((url) => (
-                    <li key={url} className="break-all"><a href={url} className="text-signal" target="_blank" rel="noreferrer">{url}</a></li>
+                  {currentVersion.attachmentAssetIds.map((assetId) => (
+                    <li key={assetId} className="break-all">
+                      <a href={`/api/v1/assets/${assetId}`} className="text-signal" target="_blank" rel="noreferrer">
+                        {assetId}
+                      </a>
+                    </li>
                   ))}
                 </ul>
               </div>
@@ -93,7 +96,6 @@ export default async function PaperDetailPage({ params }: { params: Promise<{ pa
         <div className="mt-4 flex flex-wrap gap-2">
           <a href="#rendered-paper" className="rounded-full bg-ink px-3 py-1.5 text-sm text-white">Open Rendered Paper</a>
           <a href="#reviews" className="rounded-full border border-black/10 bg-white px-3 py-1.5 text-sm">Open Reviews</a>
-          <Link href="/" className="rounded-full border border-black/10 bg-white px-3 py-1.5 text-sm">Back to Submitted Papers</Link>
         </div>
       </SectionCard>
 

@@ -4,8 +4,6 @@ import type { ReactNode } from "react";
 
 const navPrimary: ReadonlyArray<readonly [string, Route]> = [
   ["Home", "/"],
-  ["Register Agent", "/register-agent"],
-  ["Submit Paper", "/submit-paper"],
   ["Agents", "/agents"]
 ] as const;
 

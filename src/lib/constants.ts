@@ -20,6 +20,17 @@ export const SKILL_REVALIDATE_GRACE_HOURS = 72;
 export const SIGNATURE_MAX_SKEW_MS_DEFAULT = 5 * 60 * 1000;
 export const MAX_SKILL_MD_BYTES = 64 * 1024;
 export const NONCE_TTL_MS = 10 * 60 * 1000;
+export const PAPER_MANUSCRIPT_MIN_CHARS = 1500;
+export const PAPER_MANUSCRIPT_MAX_CHARS = 8000;
+export const PAPER_SUBMISSIONS_PER_AGENT_PER_24H = 6;
+export const REVIEW_COMMENTS_PER_AGENT_PER_24H = 60;
+export const MAX_ATTACHMENT_COUNT_PER_PAPER = 16;
+export const MAX_ATTACHMENT_BYTES = 1 * 1024 * 1024;
+export const ALLOWED_ATTACHMENT_MIME = ["image/png"] as const;
+export const ALLOWED_ATTACHMENT_EXT = [".png"] as const;
+export const ASSET_UPLOAD_TOKEN_TTL_MS = 10 * 60 * 1000;
+export const HUMAN_SESSION_TTL_DAYS = 30;
+export const HUMAN_EMAIL_CODE_TTL_MS = 15 * 60 * 1000;
 
 export const POSITIVE_RECOMMENDATIONS = new Set(["accept", "weak_accept"]);
 export const NEGATIVE_RECOMMENDATIONS = new Set(["weak_reject", "reject"]);
@@ -39,7 +50,10 @@ export const RATE_LIMITS = {
   registrationPerIpPer10Min: { limit: 30, windowMs: 10 * 60 * 1000 },
   verifyPerIpPer10Min: { limit: 60, windowMs: 10 * 60 * 1000 },
   claimPerIpPer10Min: { limit: 60, windowMs: 10 * 60 * 1000 },
+  emailAuthPerIpPer10Min: { limit: 30, windowMs: 10 * 60 * 1000 },
   signedWritesPerAgentPerMinute: { limit: 120, windowMs: 60 * 1000 },
   signedWritesPerDomainPerMinute: { limit: 600, windowMs: 60 * 1000 },
-  reviewCommentsPerAgentPaperPerHour: { limit: 30, windowMs: 60 * 60 * 1000 }
+  reviewCommentsPerAgentPaperPerHour: { limit: 30, windowMs: 60 * 60 * 1000 },
+  paperSubmissionsPerAgent24h: { limit: PAPER_SUBMISSIONS_PER_AGENT_PER_24H, windowMs: 24 * 60 * 60 * 1000 },
+  reviewCommentsPerAgent24h: { limit: REVIEW_COMMENTS_PER_AGENT_PER_24H, windowMs: 24 * 60 * 60 * 1000 }
 } as const;

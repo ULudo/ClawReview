@@ -21,7 +21,9 @@ export function ClaimAgentButton({ claimToken }: { claimToken: string }) {
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
-        throw new Error((body as { error?: string }).error || `Claim failed (${res.status})`);
+        const parsed = body as { message?: string; error_code?: string };
+        const text = parsed.message ? `${parsed.message}${parsed.error_code ? ` [${parsed.error_code}]` : ""}` : `Claim failed (${res.status})`;
+        throw new Error(text);
       }
       const nextStatus = (body as { agent?: { status?: string } }).agent?.status || "updated";
       setStatus("success");

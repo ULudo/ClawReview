@@ -8,6 +8,12 @@ const statusClasses: Record<Paper["latestStatus"], string> = {
   quarantined: "bg-slate-200 text-slate-900 border-slate-400"
 };
 
+function formatIsoMinuteUtc(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return `${date.toISOString().slice(0, 16).replace("T", " ")} UTC`;
+}
+
 export function PaperCard({ paper }: { paper: Paper }) {
   return (
     <Link href={`/papers/${paper.id}`} className="block rounded-xl border border-black/10 bg-white p-4 shadow-card transition hover:-translate-y-0.5 hover:shadow-lg">
@@ -17,7 +23,7 @@ export function PaperCard({ paper }: { paper: Paper }) {
       </div>
       <h3 className="mt-3 text-lg font-semibold text-ink">{paper.title}</h3>
       <p className="mt-2 text-sm text-steel">Domains: {paper.domains.join(", ")}</p>
-      <p className="text-sm text-steel">Updated: {new Date(paper.updatedAt).toLocaleString()}</p>
+      <p className="text-sm text-steel">Updated: {formatIsoMinuteUtc(paper.updatedAt)}</p>
     </Link>
   );
 }

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { MemoryStore } from "../../src/lib/store/memory";
 
 function createAgent(store: MemoryStore, index: number, domain = `agent${index}.example.org`) {
-  return store.createOrReplacePendingAgent({
+  const result = store.createOrReplacePendingAgent({
     name: `Agent ${index}`,
     handle: `agent_${index}`,
     publicKey: "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
@@ -13,13 +13,21 @@ function createAgent(store: MemoryStore, index: number, domain = `agent${index}.
     domains: ["ai-ml"],
     protocolVersion: "v1"
   });
+  if ("error" in result) throw new Error(result.error);
+  return result.agent;
 }
 
 function completeClaimAndVerify(store: MemoryStore, agentId: string) {
+  const humanStart = store.startHumanEmailVerification(`human-${agentId}@example.org`, `human_${agentId}`);
+  const verified = store.verifyHumanEmailCode(humanStart.human.email, humanStart.verification.code);
+  if ("error" in verified) throw new Error(verified.error);
+  const gh = store.linkHumanGithub(verified.human.id, `gh-${agentId}`, `gh_login_${agentId}`);
+  if ("error" in gh) throw new Error(gh.error);
+
   const ticket = store.createAgentClaimTicket(agentId);
   if (!ticket) throw new Error("missing ticket");
   const challenge = store.createAgentVerificationChallenge(agentId);
-  store.fulfillAgentHumanClaim(ticket.token);
+  store.fulfillAgentHumanClaim({ claimToken: ticket.token, humanId: verified.human.id, replaceExisting: true });
   store.fulfillAgentVerification(agentId, challenge.id);
   return store.getAgent(agentId);
 }
@@ -33,9 +41,15 @@ describe("agent claim and comment review flow", () => {
     store.fulfillAgentVerification(agent.id, challenge.id);
     expect(store.getAgent(agent.id)?.status).toBe("pending_claim");
 
+    const humanStart = store.startHumanEmailVerification("human-test@example.org", "human_test");
+    const verified = store.verifyHumanEmailCode(humanStart.human.email, humanStart.verification.code);
+    if ("error" in verified) throw new Error(verified.error);
+    const gh = store.linkHumanGithub(verified.human.id, "gh-test", "gh_test");
+    if ("error" in gh) throw new Error(gh.error);
+
     const ticket = store.createAgentClaimTicket(agent.id);
     if (!ticket) throw new Error("ticket not created");
-    store.fulfillAgentHumanClaim(ticket.token);
+    store.fulfillAgentHumanClaim({ claimToken: ticket.token, humanId: verified.human.id });
     expect(store.getAgent(agent.id)?.status).toBe("active");
   });
 
@@ -63,7 +77,7 @@ describe("agent claim and comment review flow", () => {
         paperId: created.paper.id,
         paperVersionId: created.version.id,
         reviewerAgentId: reviewer.id,
-        bodyMarkdown: `Review ${i}`,
+        bodyMarkdown: `Review ${i}: ${"A".repeat(220)}`,
         recommendation: "accept"
       });
     }
@@ -95,7 +109,7 @@ describe("agent claim and comment review flow", () => {
         paperId: created.paper.id,
         paperVersionId: created.version.id,
         reviewerAgentId: reviewer.id,
-        bodyMarkdown: `Reject review ${i}`,
+        bodyMarkdown: `Reject review ${i}: ${"B".repeat(220)}`,
         recommendation: "reject"
       });
     }

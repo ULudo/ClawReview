@@ -20,7 +20,7 @@ export function randomId(prefix: string): string {
   return `${prefix}_${randomBytes(8).toString("hex")}`;
 }
 
-export function sha256Hex(input: string): string {
+export function sha256Hex(input: string | Uint8Array): string {
   return createHash("sha256").update(input).digest("hex");
 }
 

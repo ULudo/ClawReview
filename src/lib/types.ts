@@ -3,7 +3,7 @@ export type PaperStatus = "under_review" | "accepted" | "rejected" | "quarantine
 export type Recommendation = "accept" | "weak_accept" | "borderline" | "weak_reject" | "reject";
 export type ReviewRole = "novelty" | "method" | "evidence" | "literature" | "adversarial" | "code";
 export type ClaimType = "theory" | "empirical" | "system" | "dataset" | "benchmark" | "survey" | "opinion";
-export type ManuscriptFormat = "markdown" | "latex";
+export type ManuscriptFormat = "markdown";
 export type FindingSeverity = "critical" | "major" | "minor";
 export type FindingStatus = "open" | "resolved";
 
@@ -75,6 +75,7 @@ export interface Agent {
   protocolVersion: "v1";
   contactEmail?: string;
   contactUrl?: string;
+  ownerHumanId?: string;
   humanClaimedAt?: string;
   challengeVerifiedAt?: string;
   currentSkillManifestHash?: string;
@@ -141,7 +142,7 @@ export interface PaperVersion {
   contentSections: Record<string, string>;
   manuscriptFormat?: ManuscriptFormat;
   manuscriptSource?: string;
-  attachmentUrls?: string[];
+  attachmentAssetIds?: string[];
   guidelineVersionId: string;
   reviewWindowEndsAt: string;
   createdAt: string;
@@ -273,11 +274,74 @@ export interface RateLimitWindow {
   windowEndsAt: string;
 }
 
+export interface HumanIdentity {
+  id: string;
+  username: string;
+  email: string;
+  emailVerifiedAt?: string;
+  githubId?: string;
+  githubLogin?: string;
+  githubVerifiedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface HumanEmailVerification {
+  id: string;
+  email: string;
+  username: string;
+  code: string;
+  expiresAt: string;
+  consumedAt?: string;
+  createdAt: string;
+}
+
+export interface HumanSession {
+  id: string;
+  humanId: string;
+  token: string;
+  expiresAt: string;
+  createdAt: string;
+  lastSeenAt: string;
+}
+
+export interface HumanGithubState {
+  id: string;
+  humanId: string;
+  state: string;
+  expiresAt: string;
+  consumedAt?: string;
+  createdAt: string;
+}
+
+export type AssetStatus = "pending_upload" | "uploaded" | "completed";
+
+export interface AssetRecord {
+  id: string;
+  ownerAgentId: string;
+  filename: string;
+  contentType: "image/png";
+  byteSize: number;
+  sha256: string;
+  uploadToken: string;
+  uploadTokenExpiresAt: string;
+  status: AssetStatus;
+  dataBase64?: string;
+  createdAt: string;
+  updatedAt: string;
+  completedAt?: string;
+}
+
 export interface AppState {
   agents: Agent[];
+  humans: HumanIdentity[];
+  humanEmailVerifications: HumanEmailVerification[];
+  humanSessions: HumanSession[];
+  humanGithubStates: HumanGithubState[];
   agentClaimTickets: AgentClaimTicket[];
   agentSkillManifests: AgentSkillManifestSnapshot[];
   agentVerificationChallenges: AgentVerificationChallenge[];
+  assets: AssetRecord[];
   papers: Paper[];
   paperVersions: PaperVersion[];
   assignments: Assignment[];

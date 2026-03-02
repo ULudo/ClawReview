@@ -23,6 +23,8 @@ export const agents = pgTable("agents", {
   protocolVersion: varchar("protocol_version", { length: 8 }).notNull(),
   contactEmail: text("contact_email"),
   contactUrl: text("contact_url"),
+  ownerHumanId: varchar("owner_human_id", { length: 64 }),
+  claimedByHumanAt: timestamp("claimed_by_human_at", { withTimezone: true }),
   currentSkillManifestHash: text("current_skill_manifest_hash"),
   lastVerifiedAt: timestamp("last_verified_at", { withTimezone: true }),
   lastSkillRevalidatedAt: timestamp("last_skill_revalidated_at", { withTimezone: true }),
@@ -86,6 +88,7 @@ export const paperVersions = pgTable("paper_versions", {
   contentSections: jsonb("content_sections").notNull(),
   manuscriptFormat: varchar("manuscript_format", { length: 16 }),
   manuscriptSource: text("manuscript_source"),
+  attachmentAssetIds: jsonb("attachment_asset_ids").$type<string[]>().notNull(),
   guidelineVersionId: varchar("guideline_version_id", { length: 128 }).notNull(),
   reviewWindowEndsAt: timestamp("review_window_ends_at", { withTimezone: true }).notNull(),
   codeRequired: boolean("code_required").notNull(),
@@ -191,6 +194,69 @@ export const idempotencyKeys = pgTable("idempotency_keys", {
   responseStatus: integer("response_status").notNull(),
   responseBody: jsonb("response_body").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull()
+});
+
+export const humans = pgTable("humans", {
+  id: varchar("id", { length: 64 }).primaryKey(),
+  username: varchar("username", { length: 120 }).notNull(),
+  email: text("email").notNull(),
+  emailVerifiedAt: timestamp("email_verified_at", { withTimezone: true }),
+  githubId: varchar("github_id", { length: 64 }),
+  githubLogin: varchar("github_login", { length: 120 }),
+  githubVerifiedAt: timestamp("github_verified_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull()
+}, (t) => ({
+  emailUnique: uniqueIndex("humans_email_unique").on(t.email),
+  githubIdUnique: uniqueIndex("humans_github_id_unique").on(t.githubId)
+}));
+
+export const humanEmailVerifications = pgTable("human_email_verifications", {
+  id: varchar("id", { length: 64 }).primaryKey(),
+  email: text("email").notNull(),
+  username: varchar("username", { length: 120 }).notNull(),
+  code: varchar("code", { length: 64 }).notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  consumedAt: timestamp("consumed_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull()
+});
+
+export const humanSessions = pgTable("human_sessions", {
+  id: varchar("id", { length: 64 }).primaryKey(),
+  humanId: varchar("human_id", { length: 64 }).notNull(),
+  token: varchar("token", { length: 128 }).notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+  lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull()
+}, (t) => ({
+  tokenUnique: uniqueIndex("human_sessions_token_unique").on(t.token)
+}));
+
+export const humanGithubStates = pgTable("human_github_states", {
+  id: varchar("id", { length: 64 }).primaryKey(),
+  humanId: varchar("human_id", { length: 64 }).notNull(),
+  state: varchar("state", { length: 128 }).notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  consumedAt: timestamp("consumed_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull()
+}, (t) => ({
+  stateUnique: uniqueIndex("human_github_states_state_unique").on(t.state)
+}));
+
+export const assets = pgTable("assets", {
+  id: varchar("id", { length: 64 }).primaryKey(),
+  ownerAgentId: varchar("owner_agent_id", { length: 64 }).notNull(),
+  filename: text("filename").notNull(),
+  contentType: varchar("content_type", { length: 64 }).notNull(),
+  byteSize: integer("byte_size").notNull(),
+  sha256: varchar("sha256", { length: 128 }).notNull(),
+  uploadToken: varchar("upload_token", { length: 128 }).notNull(),
+  uploadTokenExpiresAt: timestamp("upload_token_expires_at", { withTimezone: true }).notNull(),
+  status: varchar("status", { length: 32 }).notNull(),
+  dataBase64: text("data_base64"),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull()
 });
 
 export const purgedPublicRecords = pgTable("purged_public_records", {

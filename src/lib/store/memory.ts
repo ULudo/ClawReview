@@ -1,6 +1,12 @@
 import {
   AGENT_CLAIM_TOKEN_TTL_DAYS,
+  ASSET_UPLOAD_TOKEN_TTL_MS,
   DEFAULT_GUIDELINE_VERSION_ID,
+  HUMAN_EMAIL_CODE_TTL_MS,
+  HUMAN_SESSION_TTL_DAYS,
+  MAX_ATTACHMENT_BYTES,
+  PAPER_MANUSCRIPT_MAX_CHARS,
+  PAPER_MANUSCRIPT_MIN_CHARS,
   NONCE_TTL_MS,
   REJECTED_PUBLIC_RETENTION_DAYS,
   REVIEW_WINDOW_DAYS
@@ -12,10 +18,15 @@ import type {
   AgentClaimTicket,
   AgentSkillManifestSnapshot,
   AgentVerificationChallenge,
+  AssetRecord,
   AppState,
   Assignment,
   AuditEvent,
   DecisionRecord,
+  HumanEmailVerification,
+  HumanGithubState,
+  HumanIdentity,
+  HumanSession,
   Paper,
   PaperVersion,
   RateLimitWindow,
@@ -39,6 +50,12 @@ type NewAgentParams = {
   contactUrl?: string;
 };
 
+type ClaimAgentByHumanInput = {
+  claimToken: string;
+  humanId: string;
+  replaceExisting?: boolean;
+};
+
 export class MemoryStore {
   state: AppState;
 
@@ -46,9 +63,14 @@ export class MemoryStore {
     const baseState = initialState ? (JSON.parse(JSON.stringify(initialState)) as Partial<AppState>) : {};
     this.state = {
       agents: baseState.agents ?? [],
+      humans: baseState.humans ?? [],
+      humanEmailVerifications: baseState.humanEmailVerifications ?? [],
+      humanSessions: baseState.humanSessions ?? [],
+      humanGithubStates: baseState.humanGithubStates ?? [],
       agentClaimTickets: baseState.agentClaimTickets ?? [],
       agentSkillManifests: baseState.agentSkillManifests ?? [],
       agentVerificationChallenges: baseState.agentVerificationChallenges ?? [],
+      assets: baseState.assets ?? [],
       papers: baseState.papers ?? [],
       paperVersions: baseState.paperVersions ?? [],
       assignments: baseState.assignments ?? [],
@@ -70,6 +92,21 @@ export class MemoryStore {
     for (const agent of this.state.agents) {
       if ((agent.status as string) === "pending_verification") {
         agent.status = agent.humanClaimedAt ? "pending_agent_verification" : "pending_claim";
+      }
+    }
+    for (const version of this.state.paperVersions) {
+      if (!version.manuscriptFormat && version.manuscriptSource) {
+        version.manuscriptFormat = "markdown";
+      }
+      if (!version.attachmentAssetIds) {
+        version.attachmentAssetIds = [];
+      }
+      if (version.manuscriptSource) {
+        const len = version.manuscriptSource.length;
+        if (len < PAPER_MANUSCRIPT_MIN_CHARS || len > PAPER_MANUSCRIPT_MAX_CHARS) {
+          // Keep historic records readable, but ensure future writes enforce strict limits.
+          version.manuscriptSource = version.manuscriptSource.slice(0, PAPER_MANUSCRIPT_MAX_CHARS);
+        }
       }
     }
   }
@@ -112,6 +149,168 @@ export class MemoryStore {
     return [...this.state.agents].sort((a, b) => a.name.localeCompare(b.name));
   }
 
+  getHuman(humanId: string) {
+    return this.state.humans.find((h) => h.id === humanId) ?? null;
+  }
+
+  findHumanByEmail(email: string) {
+    const normalized = email.trim().toLowerCase();
+    return this.state.humans.find((h) => h.email.toLowerCase() === normalized) ?? null;
+  }
+
+  findHumanByGithubId(githubId: string) {
+    return this.state.humans.find((h) => h.githubId === githubId) ?? null;
+  }
+
+  listHumans() {
+    return [...this.state.humans].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  }
+
+  private generateEmailCode() {
+    const value = Math.floor(Math.random() * 1_000_000);
+    return String(value).padStart(6, "0");
+  }
+
+  startHumanEmailVerification(email: string, username: string) {
+    const normalized = email.trim().toLowerCase();
+    const cleanUsername = username.trim();
+    const now = nowIso();
+    const code = this.generateEmailCode();
+    const existing = this.findHumanByEmail(normalized);
+    const human: HumanIdentity = existing
+      ? {
+          ...existing,
+          username: cleanUsername || existing.username,
+          updatedAt: now
+        }
+      : {
+          id: randomId("human"),
+          username: cleanUsername || `human_${randomId("h").slice(-6)}`,
+          email: normalized,
+          createdAt: now,
+          updatedAt: now
+        };
+    if (!existing) {
+      this.state.humans.push(human);
+    } else {
+      const idx = this.state.humans.findIndex((h) => h.id === existing.id);
+      if (idx >= 0) this.state.humans[idx] = human;
+    }
+
+    const verification: HumanEmailVerification = {
+      id: randomId("emailver"),
+      email: normalized,
+      username: human.username,
+      code,
+      createdAt: now,
+      expiresAt: addMs(now, HUMAN_EMAIL_CODE_TTL_MS)
+    };
+    this.state.humanEmailVerifications.push(verification);
+    this.audit({
+      actorType: "system",
+      action: "human.email_verification.started",
+      targetType: "human",
+      targetId: human.id,
+      metadata: { email: normalized }
+    });
+    return { human, verification };
+  }
+
+  verifyHumanEmailCode(email: string, code: string) {
+    const normalized = email.trim().toLowerCase();
+    const verification = [...this.state.humanEmailVerifications]
+      .reverse()
+      .find((v) => v.email === normalized && !v.consumedAt);
+    if (!verification) return { error: "EMAIL_VERIFICATION_NOT_FOUND" as const };
+    if (new Date(verification.expiresAt).getTime() <= Date.now()) return { error: "EMAIL_VERIFICATION_EXPIRED" as const };
+    if (verification.code !== code.trim()) return { error: "EMAIL_VERIFICATION_INVALID_CODE" as const };
+    const human = this.findHumanByEmail(normalized);
+    if (!human) return { error: "HUMAN_NOT_FOUND" as const };
+
+    verification.consumedAt = nowIso();
+    human.emailVerifiedAt = nowIso();
+    human.updatedAt = nowIso();
+    const session = this.createHumanSession(human.id);
+    this.audit({
+      actorType: "human_operator",
+      actorId: human.id,
+      action: "human.email_verified",
+      targetType: "human",
+      targetId: human.id
+    });
+    return { human, session };
+  }
+
+  createHumanSession(humanId: string): HumanSession {
+    const now = nowIso();
+    const session: HumanSession = {
+      id: randomId("session"),
+      humanId,
+      token: randomId("sess"),
+      createdAt: now,
+      lastSeenAt: now,
+      expiresAt: addDays(now, HUMAN_SESSION_TTL_DAYS)
+    };
+    this.state.humanSessions.push(session);
+    return session;
+  }
+
+  getHumanSession(token: string) {
+    if (!token) return null;
+    const session = this.state.humanSessions.find((s) => s.token === token) ?? null;
+    if (!session) return null;
+    if (new Date(session.expiresAt).getTime() <= Date.now()) return null;
+    session.lastSeenAt = nowIso();
+    return session;
+  }
+
+  deleteHumanSession(token: string) {
+    this.state.humanSessions = this.state.humanSessions.filter((s) => s.token !== token);
+  }
+
+  createGithubLinkState(humanId: string) {
+    const now = nowIso();
+    const state: HumanGithubState = {
+      id: randomId("ghstate"),
+      humanId,
+      state: randomId("state"),
+      createdAt: now,
+      expiresAt: addMs(now, 10 * 60 * 1000)
+    };
+    this.state.humanGithubStates.push(state);
+    return state;
+  }
+
+  consumeGithubLinkState(stateValue: string) {
+    const state = this.state.humanGithubStates.find((item) => item.state === stateValue && !item.consumedAt) ?? null;
+    if (!state) return null;
+    if (new Date(state.expiresAt).getTime() <= Date.now()) return null;
+    state.consumedAt = nowIso();
+    return state;
+  }
+
+  linkHumanGithub(humanId: string, githubId: string, githubLogin: string) {
+    const existingOwner = this.findHumanByGithubId(githubId);
+    if (existingOwner && existingOwner.id !== humanId) {
+      return { error: "GITHUB_ALREADY_LINKED" as const };
+    }
+    const human = this.getHuman(humanId);
+    if (!human) return { error: "HUMAN_NOT_FOUND" as const };
+    human.githubId = githubId;
+    human.githubLogin = githubLogin;
+    human.githubVerifiedAt = nowIso();
+    human.updatedAt = nowIso();
+    this.audit({
+      actorType: "human_operator",
+      actorId: human.id,
+      action: "human.github_linked",
+      targetType: "human",
+      targetId: human.id,
+      metadata: { githubLogin }
+    });
+    return { human };
+  }
+
   getAgentManifestHistory(agentId: string) {
     return this.state.agentSkillManifests
       .filter((m) => m.agentId === agentId)
@@ -148,6 +347,9 @@ export class MemoryStore {
     const timestamp = nowIso();
     let agent: Agent;
     if (existing) {
+      if (existing.ownerHumanId || existing.humanClaimedAt) {
+        return { error: "HANDLE_ALREADY_CLAIMED" as const };
+      }
       existing.name = params.name;
       existing.publicKey = params.publicKey;
       existing.endpointBaseUrl = params.endpointBaseUrl;
@@ -159,6 +361,7 @@ export class MemoryStore {
       existing.contactEmail = params.contactEmail;
       existing.contactUrl = params.contactUrl;
       existing.status = "pending_claim";
+      existing.ownerHumanId = undefined;
       existing.humanClaimedAt = undefined;
       existing.challengeVerifiedAt = undefined;
       existing.lastVerifiedAt = undefined;
@@ -194,7 +397,7 @@ export class MemoryStore {
       targetId: agent.id,
       metadata: { handle: agent.handle }
     });
-    return agent;
+    return { agent };
   }
 
   saveAgentManifestSnapshot(input: {
@@ -257,26 +460,51 @@ export class MemoryStore {
     return this.state.agentClaimTickets.find((ticket) => ticket.id === ticketId) ?? null;
   }
 
-  fulfillAgentHumanClaim(claimToken: string) {
-    const ticket = this.getAgentClaimTicketByToken(claimToken);
+  fulfillAgentHumanClaim(input: ClaimAgentByHumanInput) {
+    const ticket = this.getAgentClaimTicketByToken(input.claimToken);
     if (!ticket) return { error: "Claim ticket not found" as const };
     if (ticket.fulfilledAt) return { error: "Claim ticket already fulfilled" as const };
     if (new Date(ticket.expiresAt).getTime() <= Date.now()) return { error: "Claim ticket expired" as const };
     const agent = this.getAgent(ticket.agentId);
     if (!agent) return { error: "Agent not found" as const };
+    const human = this.getHuman(input.humanId);
+    if (!human) return { error: "Human not found" as const };
+
+    const ownedActive = this.state.agents.find((candidate) => (
+      candidate.ownerHumanId === human.id &&
+      candidate.id !== agent.id &&
+      candidate.status === "active"
+    ));
+    if (ownedActive && !input.replaceExisting) {
+      return { error: "Replace required" as const, existingAgentId: ownedActive.id };
+    }
+    if (ownedActive && input.replaceExisting) {
+      ownedActive.status = "deactivated";
+      ownedActive.updatedAt = nowIso();
+      this.audit({
+        actorType: "human_operator",
+        actorId: human.id,
+        action: "agent.deactivated.replace_flow",
+        targetType: "agent",
+        targetId: ownedActive.id,
+        metadata: { replacedBy: agent.id }
+      });
+    }
 
     ticket.fulfilledAt = nowIso();
+    agent.ownerHumanId = human.id;
     agent.humanClaimedAt = nowIso();
     this.reconcileAgentActivationStatus(agent);
     agent.updatedAt = nowIso();
     this.audit({
       actorType: "human_operator",
+      actorId: human.id,
       action: "agent.claimed_by_human",
       targetType: "agent",
       targetId: agent.id,
       metadata: { claimTicketId: ticket.id }
     });
-    return { agent, ticket };
+    return { agent, ticket, human };
   }
 
   createAgentVerificationChallenge(agentId: string): AgentVerificationChallenge {
@@ -295,6 +523,112 @@ export class MemoryStore {
 
   getAgentVerificationChallenge(challengeId: string) {
     return this.state.agentVerificationChallenges.find((c) => c.id === challengeId) ?? null;
+  }
+
+  getAsset(assetId: string) {
+    return this.state.assets.find((asset) => asset.id === assetId) ?? null;
+  }
+
+  listAssetsForAgent(agentId: string) {
+    return this.state.assets
+      .filter((asset) => asset.ownerAgentId === agentId)
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  }
+
+  createAssetUploadIntent(input: {
+    ownerAgentId: string;
+    filename: string;
+    contentType: "image/png";
+    byteSize: number;
+    sha256: string;
+  }) {
+    const now = nowIso();
+    const record: AssetRecord = {
+      id: randomId("asset"),
+      ownerAgentId: input.ownerAgentId,
+      filename: input.filename,
+      contentType: input.contentType,
+      byteSize: input.byteSize,
+      sha256: input.sha256,
+      status: "pending_upload",
+      uploadToken: randomId("upload"),
+      uploadTokenExpiresAt: addMs(now, ASSET_UPLOAD_TOKEN_TTL_MS),
+      createdAt: now,
+      updatedAt: now
+    };
+    this.state.assets.push(record);
+    this.audit({
+      actorType: "agent",
+      actorId: input.ownerAgentId,
+      action: "asset.upload_intent.created",
+      targetType: "asset",
+      targetId: record.id,
+      metadata: { filename: input.filename, byteSize: input.byteSize }
+    });
+    return record;
+  }
+
+  uploadAssetBinary(input: { assetId: string; uploadToken: string; bytes: Uint8Array }) {
+    const asset = this.getAsset(input.assetId);
+    if (!asset) return { error: "Asset not found" as const };
+    if (asset.uploadToken !== input.uploadToken) return { error: "Asset upload token invalid" as const };
+    if (new Date(asset.uploadTokenExpiresAt).getTime() <= Date.now()) return { error: "Asset upload token expired" as const };
+    if (input.bytes.byteLength > MAX_ATTACHMENT_BYTES) return { error: "Asset too large" as const };
+
+    asset.dataBase64 = Buffer.from(input.bytes).toString("base64");
+    asset.status = "uploaded";
+    asset.updatedAt = nowIso();
+    this.audit({
+      actorType: "agent",
+      actorId: asset.ownerAgentId,
+      action: "asset.binary.uploaded",
+      targetType: "asset",
+      targetId: asset.id
+    });
+    return { asset };
+  }
+
+  completeAssetUpload(input: { assetId: string; ownerAgentId: string }) {
+    const asset = this.getAsset(input.assetId);
+    if (!asset) return { error: "Asset not found" as const };
+    if (asset.ownerAgentId !== input.ownerAgentId) return { error: "Asset is not owned by agent" as const };
+    if (!asset.dataBase64) return { error: "Asset not uploaded" as const };
+
+    const bytes = Buffer.from(asset.dataBase64, "base64");
+    if (bytes.byteLength > MAX_ATTACHMENT_BYTES) return { error: "Asset too large" as const };
+    if (bytes.byteLength !== asset.byteSize) return { error: "Asset byte_size mismatch" as const };
+    const actualHash = sha256Hex(bytes);
+    if (actualHash !== asset.sha256.toLowerCase()) return { error: "Asset hash mismatch" as const };
+
+    const pngSignature = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+    if (bytes.byteLength < pngSignature.byteLength || !bytes.subarray(0, 8).equals(pngSignature)) {
+      return { error: "Asset signature invalid" as const };
+    }
+
+    asset.status = "completed";
+    asset.completedAt = nowIso();
+    asset.updatedAt = nowIso();
+    this.audit({
+      actorType: "agent",
+      actorId: input.ownerAgentId,
+      action: "asset.upload.completed",
+      targetType: "asset",
+      targetId: asset.id
+    });
+    return { asset };
+  }
+
+  validateAttachmentAssets(agentId: string, assetIds: string[]) {
+    const seen = new Set<string>();
+    for (const assetId of assetIds) {
+      if (seen.has(assetId)) return { error: "Duplicate asset id" as const };
+      seen.add(assetId);
+      const asset = this.getAsset(assetId);
+      if (!asset) return { error: "Asset not found" as const, assetId };
+      if (asset.ownerAgentId !== agentId) return { error: "Asset is not owned by agent" as const, assetId };
+      if (asset.status !== "completed") return { error: "Asset not completed" as const, assetId };
+    }
+    return { ok: true as const };
   }
 
   fulfillAgentVerification(agentId: string, challengeId: string) {
@@ -427,6 +761,11 @@ export class MemoryStore {
     return assignments;
   }
 
+  findPaperVersionByExactManuscript(manuscriptSource: string) {
+    const hash = sha256Hex(manuscriptSource);
+    return this.state.paperVersions.find((version) => version.manuscriptSource && sha256Hex(version.manuscriptSource) === hash) ?? null;
+  }
+
   createPaperWithVersion(input: {
     publisherAgentId: string;
     title: string;
@@ -441,7 +780,7 @@ export class MemoryStore {
     contentSections: Record<string, string>;
     manuscriptFormat?: PaperVersion["manuscriptFormat"];
     manuscriptSource?: PaperVersion["manuscriptSource"];
-    attachmentUrls?: string[];
+    attachmentAssetIds?: string[];
     guidelineVersionId?: string;
   }) {
     const now = nowIso();
@@ -474,7 +813,7 @@ export class MemoryStore {
       contentSections: input.contentSections,
       manuscriptFormat: input.manuscriptFormat,
       manuscriptSource: input.manuscriptSource,
-      attachmentUrls: input.attachmentUrls,
+      attachmentAssetIds: input.attachmentAssetIds ?? [],
       guidelineVersionId: input.guidelineVersionId ?? DEFAULT_GUIDELINE_VERSION_ID,
       reviewWindowEndsAt: addDays(now, REVIEW_WINDOW_DAYS),
       createdAt: now,
@@ -509,7 +848,7 @@ export class MemoryStore {
     contentSections: Record<string, string>;
     manuscriptFormat?: PaperVersion["manuscriptFormat"];
     manuscriptSource?: PaperVersion["manuscriptSource"];
-    attachmentUrls?: string[];
+    attachmentAssetIds?: string[];
     guidelineVersionId?: string;
   }) {
     const paper = this.getPaper(paperId);
@@ -534,7 +873,7 @@ export class MemoryStore {
       contentSections: input.contentSections,
       manuscriptFormat: input.manuscriptFormat,
       manuscriptSource: input.manuscriptSource,
-      attachmentUrls: input.attachmentUrls,
+      attachmentAssetIds: input.attachmentAssetIds ?? [],
       guidelineVersionId: input.guidelineVersionId ?? DEFAULT_GUIDELINE_VERSION_ID,
       reviewWindowEndsAt: addDays(now, REVIEW_WINDOW_DAYS),
       createdAt: now,
@@ -619,6 +958,11 @@ export class MemoryStore {
     if (!version || version.paperId !== paper.id) return { error: "Paper version not found" as const };
     const agent = this.getAgent(input.reviewerAgentId);
     if (!agent || agent.status !== "active") return { error: "Reviewer agent not active" as const };
+    if (input.bodyMarkdown.trim().length < 200) return { error: "Review body too short" as const };
+    const alreadyCommented = this.state.paperReviewComments.some((comment) => (
+      comment.paperVersionId === version.id && comment.reviewerAgentId === agent.id
+    ));
+    if (alreadyCommented) return { error: "Review duplicate agent on version" as const };
 
     const comment = {
       id: randomId("comment"),
