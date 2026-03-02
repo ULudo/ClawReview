@@ -15,6 +15,7 @@ import {
   ALLOWED_ATTACHMENT_EXT,
   ALLOWED_ATTACHMENT_MIME,
   DEFAULT_GUIDELINE_VERSION_ID,
+  HUMAN_EMAIL_CODE_TTL_MS,
   MAX_ATTACHMENT_BYTES,
   MAX_ATTACHMENT_COUNT_PER_PAPER,
   PAPER_MANUSCRIPT_MAX_CHARS,
@@ -23,6 +24,7 @@ import {
   SIGNATURE_MAX_SKEW_MS_DEFAULT
 } from "@/lib/constants";
 import { ERROR_CODES } from "@/lib/error-codes";
+import { sendVerificationEmail } from "@/lib/email/send-verification-email";
 import { fetchAndParseSkillManifest, SkillManifestError } from "@/lib/skill-md/parser";
 import {
   agentClaimRequestSchema,
@@ -310,6 +312,19 @@ function getPublicAppUrl(req: NextRequest) {
   return req.nextUrl.origin.replace(/\/+$/, "");
 }
 
+function getGithubResponseMode(req: NextRequest): "json" | "redirect" {
+  const raw = req.nextUrl.searchParams.get("response_mode")?.trim().toLowerCase();
+  if (raw === "redirect") return "redirect";
+  return "json";
+}
+
+function getGithubReturnTo(req: NextRequest) {
+  const raw = req.nextUrl.searchParams.get("return_to")?.trim();
+  if (!raw) return undefined;
+  if (!raw.startsWith("/") || raw.startsWith("//")) return undefined;
+  return raw;
+}
+
 function getSessionTokenFromRequest(req: NextRequest) {
   const cookie = req.cookies.get("clawreview_human_session")?.value;
   if (cookie) return cookie;
@@ -493,7 +508,9 @@ export async function GET(req: NextRequest) {
     if (segments.length === 4 && segments[0] === "humans" && segments[1] === "auth" && segments[2] === "github" && segments[3] === "start") {
       const sessionState = requireHumanSession(req, store);
       if (!sessionState.ok) return sessionState.response;
-      const state = store.createGithubLinkState(sessionState.human.id);
+      const responseMode = getGithubResponseMode(req);
+      const returnTo = getGithubReturnTo(req);
+      const state = store.createGithubLinkState(sessionState.human.id, { responseMode, returnTo });
       const clientId = process.env.GITHUB_CLIENT_ID;
       if (!clientId) {
         if (shouldAllowUnsignedDev()) {
@@ -542,6 +559,14 @@ export async function GET(req: NextRequest) {
         return conflict("GitHub account is already linked to another human", { errorCode: ERROR_CODES.conflict });
       }
       await persistRuntimeStore(store);
+      if (state.responseMode === "redirect" && state.returnTo) {
+        try {
+          const destination = new URL(state.returnTo, getPublicAppUrl(req));
+          return Response.redirect(destination, 302);
+        } catch {
+          // fallback to JSON response
+        }
+      }
       return ok({ human: linked.human, github_linked: true });
     }
 
@@ -564,7 +589,18 @@ export async function GET(req: NextRequest) {
     if (segments.length === 3 && segments[0] === "agents" && segments[1] === "claim") {
       const claimToken = decodeURIComponent(segments[2]);
       const ticket = store.getAgentClaimTicketByToken(claimToken);
-      if (!ticket) return notFound("Claim ticket not found");
+      if (!ticket) {
+        return notFound("Claim ticket not found", {
+          errorCode: ERROR_CODES.claimTokenInvalid,
+          hint: "Retry this link in a few seconds or re-register the agent."
+        });
+      }
+      if (new Date(ticket.expiresAt).getTime() <= Date.now()) {
+        return unauthorized("Claim ticket expired", {
+          errorCode: ERROR_CODES.claimTokenExpired,
+          hint: "Re-register the agent to issue a new claim link."
+        });
+      }
       const agent = store.getAgent(ticket.agentId);
       if (!agent) return notFound("Agent not found");
       const sessionToken = getSessionTokenFromRequest(req);
@@ -755,13 +791,27 @@ export async function POST(req: NextRequest) {
       }
 
       const started = store.startHumanEmailVerification(parsed.data.email, parsed.data.username);
+      const unsignedDev = shouldAllowUnsignedDev();
+      if (!unsignedDev) {
+        const emailResult = await sendVerificationEmail({
+          to: started.human.email,
+          code: started.verification.code,
+          expiresInMinutes: Math.max(1, Math.floor(HUMAN_EMAIL_CODE_TTL_MS / 60000))
+        });
+        if (!emailResult.ok) {
+          return serverError("Email delivery is unavailable", {
+            errorCode: ERROR_CODES.internal,
+            hint: "Configure RESEND_API_KEY and EMAIL_FROM, then retry."
+          });
+        }
+      }
       await persistRuntimeStore(store);
       const response = {
         human_id: started.human.id,
         email: started.human.email,
         status: "verification_sent",
-        delivery: "simulated",
-        ...(shouldAllowUnsignedDev() ? { verification_code_dev_only: started.verification.code } : {})
+        delivery: unsignedDev ? "dev" : "email",
+        ...(unsignedDev ? { verification_code_dev_only: started.verification.code } : {})
       };
       return created(response);
     }

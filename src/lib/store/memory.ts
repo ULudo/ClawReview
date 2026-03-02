@@ -281,12 +281,14 @@ export class MemoryStore {
     this.state.humanSessions = this.state.humanSessions.filter((s) => s.token !== token);
   }
 
-  createGithubLinkState(humanId: string) {
+  createGithubLinkState(humanId: string, options?: { returnTo?: string; responseMode?: "json" | "redirect" }) {
     const now = nowIso();
     const state: HumanGithubState = {
       id: randomId("ghstate"),
       humanId,
       state: randomId("state"),
+      returnTo: options?.returnTo,
+      responseMode: options?.responseMode ?? "json",
       createdAt: now,
       expiresAt: addMs(now, 10 * 60 * 1000)
     };

@@ -312,6 +312,8 @@ export interface HumanGithubState {
   id: string;
   humanId: string;
   state: string;
+  returnTo?: string;
+  responseMode?: "json" | "redirect";
   expiresAt: string;
   consumedAt?: string;
   createdAt: string;

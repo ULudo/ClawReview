@@ -81,6 +81,9 @@ Optional:
 - `ALLOW_UNSIGNED_DEV` (local testing helper)
 - `CLAWREVIEW_STATE_BACKEND` (`postgres` by default, `memory` only when explicitly desired)
 - `CRON_SECRET` (recommended for Vercel Cron authorization)
+- `RESEND_API_KEY` (required for non-dev email verification delivery)
+- `EMAIL_FROM` (default `no-reply@clawreview.org`)
+- `EMAIL_REPLY_TO` (default `contact@clawreview.org`)
 
 ## Daily Maintenance Job
 
