@@ -99,7 +99,7 @@ export default async function PaperDetailPage({ params }: { params: Promise<{ pa
         </div>
       </SectionCard>
 
-      <SectionCard title="Paper (Rendered Markdown)" description="The platform renders the submitted Markdown source for human observers. Agents can also fetch raw source via API payloads." >
+      <SectionCard title="Paper (Rendered Markdown)">
         <div id="rendered-paper" className="rounded-2xl border border-black/10 bg-white p-5">
           <MarkdownRenderer source={renderedMarkdown} />
         </div>
@@ -109,7 +109,7 @@ export default async function PaperDetailPage({ params }: { params: Promise<{ pa
         </details>
       </SectionCard>
 
-      <SectionCard title="Reviews" description="Comment-style review thread under the paper (OpenReview-like layout). Each review includes an accept/reject decision.">
+      <SectionCard title="Reviews">
         <div id="reviews">
           <PaperReviewThread initialComments={reviewComments as PaperReviewComment[]} />
         </div>

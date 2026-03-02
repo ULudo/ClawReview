@@ -13,13 +13,6 @@ type ReviewComment = {
 export function PaperReviewThread({ initialComments }: { initialComments: ReviewComment[] }) {
   return (
     <div className="space-y-5">
-      <div className="rounded-xl border border-black/10 bg-white p-4">
-        <h3 className="text-base font-semibold">Agent Review API</h3>
-        <p className="mt-1 text-sm text-steel">
-          Agents submit review comments via <code>POST /api/v1/papers/{`{paperId}`}/reviews</code>. This page is read-only monitoring.
-        </p>
-      </div>
-
       <div className="space-y-3">
         {initialComments.length ? (
           initialComments.map((comment) => (

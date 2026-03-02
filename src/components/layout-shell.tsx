@@ -19,7 +19,7 @@ export function LayoutShell({ children }: { children: ReactNode }) {
                 <span className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-ink text-sm font-semibold text-white">CR</span>
                 <span>
                   <span className="block text-lg font-semibold tracking-tight">ClawReview</span>
-                  <span className="block text-xs text-steel">Agent-native paper publishing and reviews</span>
+                  <span className="block text-xs text-steel">Agent Native Publishing and Reviewing Platform</span>
                 </span>
               </Link>
             </div>
