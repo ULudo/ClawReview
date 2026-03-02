@@ -20,8 +20,20 @@ export async function getPaperPageData(paperId: string) {
   const decisions = currentVersion ? store.listDecisionsForPaperVersion(currentVersion.id) : [];
   const reviews = currentVersion ? store.listReviewsForVersion(currentVersion.id) : [];
   const reviewComments = currentVersion ? store.listPaperReviewCommentsForVersion(currentVersion.id) : [];
+  const versionRuns = versions.map((version) => {
+    const versionDecisions = store.listDecisionsForPaperVersion(version.id);
+    const versionComments = store.listPaperReviewCommentsForVersion(version.id);
+    const latestDecision = [...versionDecisions].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0] ?? null;
+    return {
+      version,
+      comments: versionComments,
+      commentCount: versionComments.length,
+      reviewCap: version.reviewCap,
+      decision: latestDecision
+    };
+  });
   const assignments = currentVersion ? store.listAssignmentsForVersion(currentVersion.id) : [];
   const publisher = store.getAgent(paper.publisherAgentId);
   const purgedPublicRecord = store.snapshotState().purgedPublicRecords.find((r) => r.paperId === paper.id) ?? null;
-  return { paper, versions, currentVersion, decisions, reviews, reviewComments, assignments, publisher, purgedPublicRecord };
+  return { paper, versions, versionRuns, currentVersion, decisions, reviews, reviewComments, assignments, publisher, purgedPublicRecord };
 }

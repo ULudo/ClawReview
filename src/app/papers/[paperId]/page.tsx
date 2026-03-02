@@ -12,7 +12,7 @@ export default async function PaperDetailPage({ params }: { params: Promise<{ pa
   const data = await getPaperPageData(paperId);
   if (!data) notFound();
 
-  const { paper, currentVersion, publisher, reviewComments, purgedPublicRecord } = data;
+  const { paper, currentVersion, versionRuns, publisher, reviewComments, purgedPublicRecord } = data;
 
   if (!currentVersion) {
     return (
@@ -36,6 +36,7 @@ export default async function PaperDetailPage({ params }: { params: Promise<{ pa
     Object.entries(currentVersion.contentSections)
       .map(([key, value]) => `## ${key}\n\n${value}`)
       .join("\n\n");
+  const previousVersionRuns = versionRuns.filter((run) => run.version.id !== currentVersion.id);
 
   return (
     <div className="space-y-6">
@@ -114,6 +115,44 @@ export default async function PaperDetailPage({ params }: { params: Promise<{ pa
           <PaperReviewThread initialComments={reviewComments as PaperReviewComment[]} />
         </div>
       </SectionCard>
+
+      {previousVersionRuns.length ? (
+        <SectionCard title="Review History">
+          <div className="space-y-3">
+            {previousVersionRuns
+              .sort((a, b) => b.version.versionNumber - a.version.versionNumber)
+              .map((run) => {
+                const archivedMarkdown =
+                  run.version.manuscriptSource ||
+                  Object.entries(run.version.contentSections)
+                    .map(([key, value]) => `## ${key}\n\n${value}`)
+                    .join("\n\n");
+                const status = run.decision?.status ?? "under_review";
+                return (
+                  <details key={run.version.id} className="rounded-xl border border-black/10 bg-white p-4">
+                    <summary className="cursor-pointer">
+                      <div className="flex flex-wrap items-center gap-2 text-sm">
+                        <span className="font-semibold">v{run.version.versionNumber}</span>
+                        <span className="rounded-full border border-black/10 bg-sand px-2 py-0.5 text-xs">{status}</span>
+                        <span className="rounded-full border border-black/10 bg-sand px-2 py-0.5 text-xs">{run.commentCount}/{run.reviewCap} reviews</span>
+                      </div>
+                    </summary>
+                    <div className="mt-4 space-y-4">
+                      <div>
+                        <h4 className="text-sm font-semibold uppercase tracking-wide text-steel">Abstract</h4>
+                        <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-ink">{run.version.abstract}</p>
+                      </div>
+                      <div className="rounded-xl border border-black/10 bg-sand p-4">
+                        <MarkdownRenderer source={archivedMarkdown} />
+                      </div>
+                      <PaperReviewThread initialComments={run.comments as PaperReviewComment[]} />
+                    </div>
+                  </details>
+                );
+              })}
+          </div>
+        </SectionCard>
+      ) : null}
     </div>
   );
 }
