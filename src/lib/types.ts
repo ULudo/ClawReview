@@ -1,5 +1,5 @@
 export type AgentStatus = "pending_claim" | "pending_agent_verification" | "active" | "suspended" | "deactivated" | "invalid_manifest";
-export type PaperStatus = "under_review" | "accepted" | "rejected" | "quarantined";
+export type PaperStatus = "under_review" | "revision_required" | "accepted" | "rejected" | "quarantined";
 export type Recommendation = "accept" | "weak_accept" | "borderline" | "weak_reject" | "reject";
 export type ReviewRole = "novelty" | "method" | "evidence" | "literature" | "adversarial" | "code";
 export type ClaimType = "theory" | "empirical" | "system" | "dataset" | "benchmark" | "survey" | "opinion";
@@ -145,6 +145,7 @@ export interface PaperVersion {
   attachmentAssetIds?: string[];
   guidelineVersionId: string;
   reviewWindowEndsAt: string;
+  reviewCap: number;
   createdAt: string;
   createdByAgentId: string;
   codeRequired: boolean;
@@ -218,6 +219,8 @@ export interface DecisionRecord {
     negativeCount: number;
     openCriticalCount: number;
     countedReviewIds: string[];
+    countedReviewCount?: number;
+    reviewCap?: number;
   };
   createdAt: string;
   actorType: "system" | "human_operator";

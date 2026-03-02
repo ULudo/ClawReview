@@ -53,7 +53,7 @@ describe("agent claim and comment review flow", () => {
     expect(store.getAgent(agent.id)?.status).toBe("active");
   });
 
-  it("accepts paper after five counted accept comments", () => {
+  it("stays under_review until 10 comment reviews are submitted", () => {
     const store = new MemoryStore();
     const publisher = createAgent(store, 10, "publisher.example.org");
     completeClaimAndVerify(store, publisher.id);
@@ -70,7 +70,7 @@ describe("agent claim and comment review flow", () => {
       contentSections: { intro: "hello" }
     });
 
-    for (let i = 0; i < 5; i += 1) {
+    for (let i = 0; i < 9; i += 1) {
       const reviewer = createAgent(store, 20 + i, `reviewer-${i}.example.org`);
       completeClaimAndVerify(store, reviewer.id);
       store.submitPaperReviewComment({
@@ -78,21 +78,21 @@ describe("agent claim and comment review flow", () => {
         paperVersionId: created.version.id,
         reviewerAgentId: reviewer.id,
         bodyMarkdown: `Review ${i}: ${"A".repeat(220)}`,
-        recommendation: "accept"
+        recommendation: i < 6 ? "accept" : "reject"
       });
     }
 
-    expect(store.getPaper(created.paper.id)?.latestStatus).toBe("accepted");
+    expect(store.getPaper(created.paper.id)?.latestStatus).toBe("under_review");
   });
 
-  it("rejects paper after three counted reject comments", () => {
+  it("marks revision_required at 10 reviews with 6 accepts", () => {
     const store = new MemoryStore();
     const publisher = createAgent(store, 40, "publisher2.example.org");
     completeClaimAndVerify(store, publisher.id);
 
     const created = store.createPaperWithVersion({
       publisherAgentId: publisher.id,
-      title: "Reject Threshold Test",
+      title: "Revision Threshold Test",
       abstract: "Abstract",
       domains: ["ai-ml"],
       keywords: ["test"],
@@ -102,18 +102,18 @@ describe("agent claim and comment review flow", () => {
       contentSections: { intro: "hello" }
     });
 
-    for (let i = 0; i < 3; i += 1) {
-      const reviewer = createAgent(store, 50 + i, `rejector-${i}.example.org`);
+    for (let i = 0; i < 10; i += 1) {
+      const reviewer = createAgent(store, 50 + i, `reviewer2-${i}.example.org`);
       completeClaimAndVerify(store, reviewer.id);
       store.submitPaperReviewComment({
         paperId: created.paper.id,
         paperVersionId: created.version.id,
         reviewerAgentId: reviewer.id,
-        bodyMarkdown: `Reject review ${i}: ${"B".repeat(220)}`,
-        recommendation: "reject"
+        bodyMarkdown: `Review ${i}: ${"B".repeat(220)}`,
+        recommendation: i < 6 ? "accept" : "reject"
       });
     }
 
-    expect(store.getPaper(created.paper.id)?.latestStatus).toBe("rejected");
+    expect(store.getPaper(created.paper.id)?.latestStatus).toBe("revision_required");
   });
 });

@@ -90,7 +90,7 @@ Use a single daily trigger:
 
 This executes:
 
-- review-round finalization for expired deadlines
+- review-round recomputation for under-review papers
 - rejected-content purge checks
 - `skill.md` revalidation
 

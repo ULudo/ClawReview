@@ -17,6 +17,7 @@ function mkVersion(overrides: Partial<PaperVersion> = {}): PaperVersion {
     contentSections: { problem_statement: "x" },
     guidelineVersionId: "guideline-base-v1",
     reviewWindowEndsAt: new Date(Date.now() + 86400000).toISOString(),
+    reviewCap: 10,
     createdAt: new Date().toISOString(),
     createdByAgentId: "agent_pub",
     codeRequired: false,
@@ -24,7 +25,7 @@ function mkVersion(overrides: Partial<PaperVersion> = {}): PaperVersion {
   };
 }
 
-function mkReview(id: string, role: Review["role"], recommendation: Review["recommendation"], domain: string): Review {
+function mkReview(id: string, recommendation: Review["recommendation"], domain: string): Review {
   return {
     id,
     paperId: "paper_1",
@@ -32,7 +33,7 @@ function mkReview(id: string, role: Review["role"], recommendation: Review["reco
     assignmentId: `asg_${id}`,
     reviewerAgentId: `agent_${id}`,
     reviewerOriginDomain: domain,
-    role,
+    role: "novelty",
     guidelineVersionId: "guideline-base-v1",
     recommendation,
     scores: {},
@@ -48,41 +49,86 @@ function mkReview(id: string, role: Review["role"], recommendation: Review["reco
 }
 
 describe("evaluateDecision", () => {
-  it("accepts with required role coverage and 4 counted positives (non-code)", () => {
+  it("stays under_review with fewer than 10 counted reviews", () => {
     const version = mkVersion();
     const reviews: Review[] = [
-      mkReview("1", "novelty", "accept", "a.example"),
-      mkReview("2", "method", "weak_accept", "b.example"),
-      mkReview("3", "evidence", "accept", "c.example"),
-      mkReview("4", "literature", "accept", "d.example"),
-      mkReview("5", "adversarial", "borderline", "e.example")
+      mkReview("1", "accept", "a.example"),
+      mkReview("2", "accept", "b.example"),
+      mkReview("3", "reject", "c.example")
     ];
     const result = evaluateDecision({ version, reviews });
-    expect(result.nextStatus).toBe("accepted");
+    expect(result.nextStatus).toBe("under_review");
   });
 
-  it("rejects early after 3 counted negatives", () => {
+  it("rejects at cap when rejects are >= 5", () => {
     const version = mkVersion();
     const reviews: Review[] = [
-      mkReview("1", "novelty", "reject", "a.example"),
-      mkReview("2", "method", "weak_reject", "b.example"),
-      mkReview("3", "evidence", "reject", "c.example")
+      mkReview("1", "reject", "1.example"),
+      mkReview("2", "reject", "2.example"),
+      mkReview("3", "reject", "3.example"),
+      mkReview("4", "reject", "4.example"),
+      mkReview("5", "reject", "5.example"),
+      mkReview("6", "accept", "6.example"),
+      mkReview("7", "accept", "7.example"),
+      mkReview("8", "accept", "8.example"),
+      mkReview("9", "accept", "9.example"),
+      mkReview("10", "accept", "10.example")
     ];
     const result = evaluateDecision({ version, reviews });
     expect(result.nextStatus).toBe("rejected");
   });
 
-  it("counts only one review per origin domain", () => {
+  it("returns revision_required at cap for 6..8 accepts", () => {
     const version = mkVersion();
     const reviews: Review[] = [
-      mkReview("1", "novelty", "accept", "dup.example"),
-      mkReview("2", "method", "accept", "dup.example"),
-      mkReview("3", "evidence", "accept", "c.example"),
-      mkReview("4", "literature", "accept", "d.example"),
-      mkReview("5", "adversarial", "accept", "e.example")
+      mkReview("1", "accept", "1.example"),
+      mkReview("2", "accept", "2.example"),
+      mkReview("3", "accept", "3.example"),
+      mkReview("4", "accept", "4.example"),
+      mkReview("5", "accept", "5.example"),
+      mkReview("6", "accept", "6.example"),
+      mkReview("7", "accept", "7.example"),
+      mkReview("8", "reject", "8.example"),
+      mkReview("9", "reject", "9.example"),
+      mkReview("10", "reject", "10.example")
     ];
     const result = evaluateDecision({ version, reviews });
-    expect(result.snapshot.countedReviewIds).toHaveLength(4);
+    expect(result.nextStatus).toBe("revision_required");
+  });
+
+  it("accepts at cap for 9 accepts", () => {
+    const version = mkVersion();
+    const reviews: Review[] = [
+      mkReview("1", "accept", "1.example"),
+      mkReview("2", "accept", "2.example"),
+      mkReview("3", "accept", "3.example"),
+      mkReview("4", "accept", "4.example"),
+      mkReview("5", "accept", "5.example"),
+      mkReview("6", "accept", "6.example"),
+      mkReview("7", "accept", "7.example"),
+      mkReview("8", "accept", "8.example"),
+      mkReview("9", "accept", "9.example"),
+      mkReview("10", "reject", "10.example")
+    ];
+    const result = evaluateDecision({ version, reviews });
     expect(result.nextStatus).toBe("accepted");
+  });
+
+  it("uses reject precedence at 5 accepts and 5 rejects", () => {
+    const version = mkVersion();
+    const reviews: Review[] = [
+      mkReview("1", "accept", "1.example"),
+      mkReview("2", "accept", "2.example"),
+      mkReview("3", "accept", "3.example"),
+      mkReview("4", "accept", "4.example"),
+      mkReview("5", "accept", "5.example"),
+      mkReview("6", "reject", "6.example"),
+      mkReview("7", "reject", "7.example"),
+      mkReview("8", "reject", "8.example"),
+      mkReview("9", "reject", "9.example"),
+      mkReview("10", "reject", "10.example")
+    ];
+    const result = evaluateDecision({ version, reviews });
+    expect(result.nextStatus).toBe("rejected");
   });
 });

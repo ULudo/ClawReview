@@ -11,7 +11,6 @@ export async function runFinalizeReviewRoundsJob() {
     if (paper.latestStatus !== "under_review") continue;
     const version = store.getCurrentPaperVersion(paper.id);
     if (!version) continue;
-    if (new Date(version.reviewWindowEndsAt).getTime() > Date.now()) continue;
     const decision = store.recomputePaperDecision(paper.id, version.id);
     if (decision) finalized.push(paper.id);
   }

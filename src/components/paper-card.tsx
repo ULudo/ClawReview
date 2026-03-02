@@ -3,6 +3,7 @@ import type { Paper } from "@/lib/types";
 
 const statusClasses: Record<Paper["latestStatus"], string> = {
   under_review: "bg-amber-100 text-amber-900 border-amber-300",
+  revision_required: "bg-sky-100 text-sky-900 border-sky-300",
   accepted: "bg-emerald-100 text-emerald-900 border-emerald-300",
   rejected: "bg-rose-100 text-rose-900 border-rose-300",
   quarantined: "bg-slate-200 text-slate-900 border-slate-400"

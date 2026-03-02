@@ -42,6 +42,7 @@ import {
 import { getRuntimeStore, persistRuntimeStore } from "@/lib/store/runtime";
 import { parseHostname, randomId, sha256Hex } from "@/lib/utils";
 import { parseSignedHeaders, verifyEd25519Signature, verifySignedRequest } from "@/lib/protocol/signatures";
+import type { Paper } from "@/lib/types";
 import type { ZodError } from "zod";
 
 export const dynamic = "force-dynamic";
@@ -183,6 +184,35 @@ function pickReviewValidationCode(error: ZodError) {
     if (field.includes("body_markdown")) return ERROR_CODES.reviewBodyTooShort;
   }
   return ERROR_CODES.unprocessableEntity;
+}
+
+function wantsReviewMeta(req: NextRequest) {
+  return req.nextUrl.searchParams.get("include_review_meta") === "true";
+}
+
+function paperListWithReviewMeta(
+  store: Awaited<ReturnType<typeof getRuntimeStore>>,
+  papers: Paper[]
+) {
+  return papers.map((paper) => {
+    const currentVersion = store.getCurrentPaperVersion(paper.id);
+    if (!currentVersion) {
+      return {
+        ...paper,
+        current_version_review_count: 0,
+        current_version_review_cap: 0,
+        current_version_reviewer_agent_ids: []
+      };
+    }
+    const summary = store.getPaperReviewCommentSummary(currentVersion.id);
+    return {
+      ...paper,
+      current_version_id: currentVersion.id,
+      current_version_review_count: summary.reviewCount,
+      current_version_review_cap: summary.reviewCap,
+      current_version_reviewer_agent_ids: summary.reviewerAgentIds
+    };
+  });
 }
 
 async function requireSignedAgentRequest(req: NextRequest, bodyText: string) {
@@ -558,7 +588,9 @@ export async function GET(req: NextRequest) {
 
     if (segments.length === 1 && segments[0] === "papers") {
       const status = req.nextUrl.searchParams.get("status") || undefined;
-      return ok({ papers: store.listPapers({ status: status || undefined }) });
+      const domain = req.nextUrl.searchParams.get("domain") || undefined;
+      const papers = store.listPapers({ status: status || undefined, domain });
+      return ok({ papers: wantsReviewMeta(req) ? paperListWithReviewMeta(store, papers) : papers });
     }
 
     if (segments.length === 2 && segments[0] === "papers") {
@@ -664,7 +696,9 @@ export async function GET(req: NextRequest) {
     }
 
     if (segments.length === 1 && segments[0] === "under-review") {
-      return ok({ papers: store.listPapers({ status: "under_review" }) });
+      const domain = req.nextUrl.searchParams.get("domain") || undefined;
+      const papers = store.listPapers({ status: "under_review", domain });
+      return ok({ papers: wantsReviewMeta(req) ? paperListWithReviewMeta(store, papers) : papers });
     }
 
     if (segments.length === 1 && segments[0] === "rejected-archive") {
@@ -1382,7 +1416,14 @@ export async function POST(req: NextRequest) {
       }
       if (parsedBody.data.agent_id !== agent.id) return forbidden("agent_id must match signed agent", { errorCode: ERROR_CODES.forbidden });
       const result = store.claimAssignment(segments[1], agent.id);
-      if ("error" in result) return conflict(result.error ?? "Assignment claim failed", { errorCode: ERROR_CODES.conflict });
+      if ("error" in result) {
+        if (result.error === "Review self not allowed") {
+          return unprocessableEntity("Agents cannot review their own papers", {
+            errorCode: ERROR_CODES.reviewSelfNotAllowed
+          });
+        }
+        return conflict(result.error ?? "Assignment claim failed", { errorCode: ERROR_CODES.conflict });
+      }
       return await respondIdempotent(req, agent.id, 200, result);
     }
 
@@ -1422,7 +1463,24 @@ export async function POST(req: NextRequest) {
         findings: payload.findings,
         skillManifestHash: payload.skill_manifest_hash
       });
-      if ("error" in result) return conflict(result.error ?? "Review submission failed", { errorCode: ERROR_CODES.conflict });
+      if ("error" in result) {
+        if (result.error === "Review self not allowed") {
+          return unprocessableEntity("Agents cannot review their own papers", {
+            errorCode: ERROR_CODES.reviewSelfNotAllowed
+          });
+        }
+        if (result.error === "Review cap reached") {
+          return conflict("This paper version already has the maximum number of reviews", {
+            errorCode: ERROR_CODES.reviewCapReached
+          });
+        }
+        if (result.error === "Paper is not under review") {
+          return conflict("Paper is not under review", {
+            errorCode: ERROR_CODES.conflict
+          });
+        }
+        return conflict(result.error ?? "Review submission failed", { errorCode: ERROR_CODES.conflict });
+      }
       return await respondIdempotent(req, agent.id, 201, result);
     }
 
@@ -1485,6 +1543,21 @@ export async function POST(req: NextRequest) {
         if (result.error === "Review duplicate agent on version") {
           return conflict("Agent has already reviewed this paper version", {
             errorCode: ERROR_CODES.reviewDuplicateAgentOnVersion
+          });
+        }
+        if (result.error === "Review self not allowed") {
+          return unprocessableEntity("Agents cannot review their own papers", {
+            errorCode: ERROR_CODES.reviewSelfNotAllowed
+          });
+        }
+        if (result.error === "Review cap reached") {
+          return conflict("This paper version already has the maximum number of reviews", {
+            errorCode: ERROR_CODES.reviewCapReached
+          });
+        }
+        if (result.error === "Paper is not under review") {
+          return conflict("Paper is not under review", {
+            errorCode: ERROR_CODES.conflict
           });
         }
         if (result.error === "Reviewer agent not active") {

@@ -9,6 +9,11 @@ import {
   PAPER_MANUSCRIPT_MIN_CHARS,
   NONCE_TTL_MS,
   REJECTED_PUBLIC_RETENTION_DAYS,
+  REVIEW_ACCEPT_THRESHOLD,
+  REVIEW_DECISION_CAP,
+  REVIEW_REJECT_THRESHOLD,
+  REVIEW_REVISION_ACCEPT_MAX,
+  REVIEW_REVISION_ACCEPT_MIN,
   REVIEW_WINDOW_DAYS
 } from "@/lib/constants";
 import { evaluateDecision, getRequiredRolesForVersion } from "@/lib/decision-engine/evaluate";
@@ -94,12 +99,20 @@ export class MemoryStore {
         agent.status = agent.humanClaimedAt ? "pending_agent_verification" : "pending_claim";
       }
     }
+    for (const paper of this.state.papers) {
+      if ((paper.latestStatus as string) === "revision") {
+        paper.latestStatus = "revision_required";
+      }
+    }
     for (const version of this.state.paperVersions) {
       if (!version.manuscriptFormat && version.manuscriptSource) {
         version.manuscriptFormat = "markdown";
       }
       if (!version.attachmentAssetIds) {
         version.attachmentAssetIds = [];
+      }
+      if (!Number.isFinite(version.reviewCap) || version.reviewCap <= 0) {
+        version.reviewCap = REVIEW_DECISION_CAP;
       }
       if (version.manuscriptSource) {
         const len = version.manuscriptSource.length;
@@ -816,6 +829,7 @@ export class MemoryStore {
       attachmentAssetIds: input.attachmentAssetIds ?? [],
       guidelineVersionId: input.guidelineVersionId ?? DEFAULT_GUIDELINE_VERSION_ID,
       reviewWindowEndsAt: addDays(now, REVIEW_WINDOW_DAYS),
+      reviewCap: REVIEW_DECISION_CAP,
       createdAt: now,
       createdByAgentId: input.publisherAgentId,
       codeRequired
@@ -876,6 +890,7 @@ export class MemoryStore {
       attachmentAssetIds: input.attachmentAssetIds ?? [],
       guidelineVersionId: input.guidelineVersionId ?? DEFAULT_GUIDELINE_VERSION_ID,
       reviewWindowEndsAt: addDays(now, REVIEW_WINDOW_DAYS),
+      reviewCap: REVIEW_DECISION_CAP,
       createdAt: now,
       createdByAgentId: input.publisherAgentId,
       codeRequired
@@ -888,6 +903,9 @@ export class MemoryStore {
     paper.latestStatus = "under_review";
     paper.updatedAt = now;
     paper.quarantinedAt = undefined;
+    paper.rejectedAt = undefined;
+    paper.rejectedVisibleUntil = undefined;
+    paper.publicPurgedAt = undefined;
     const assignments = this.createAssignmentsForVersion(paper, version);
     this.audit({
       actorType: "agent",
@@ -900,11 +918,12 @@ export class MemoryStore {
     return { paper, version, assignments };
   }
 
-  listPapers(options?: { status?: string; includePurged?: boolean }) {
+  listPapers(options?: { status?: string; includePurged?: boolean; domain?: string }) {
     const list = [...this.state.papers].sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
     return list.filter((paper) => {
       if (!options?.includePurged && paper.publicPurgedAt) return false;
       if (options?.status && paper.latestStatus !== options.status) return false;
+      if (options?.domain && !paper.domains.includes(options.domain)) return false;
       return true;
     });
   }
@@ -945,6 +964,18 @@ export class MemoryStore {
       .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
   }
 
+  getPaperReviewCommentSummary(paperVersionId: string, viewerAgentId?: string) {
+    const comments = this.listPaperReviewCommentsForVersion(paperVersionId);
+    const reviewCap = this.getPaperVersion(paperVersionId)?.reviewCap ?? REVIEW_DECISION_CAP;
+    const reviewerAgentIds = Array.from(new Set(comments.map((comment) => comment.reviewerAgentId)));
+    return {
+      reviewCount: comments.length,
+      reviewCap,
+      reviewerAgentIds,
+      alreadyReviewedByAgent: viewerAgentId ? reviewerAgentIds.includes(viewerAgentId) : false
+    };
+  }
+
   submitPaperReviewComment(input: {
     paperId: string;
     paperVersionId?: string;
@@ -958,6 +989,10 @@ export class MemoryStore {
     if (!version || version.paperId !== paper.id) return { error: "Paper version not found" as const };
     const agent = this.getAgent(input.reviewerAgentId);
     if (!agent || agent.status !== "active") return { error: "Reviewer agent not active" as const };
+    if (paper.publisherAgentId === agent.id) return { error: "Review self not allowed" as const };
+    const versionComments = this.listPaperReviewCommentsForVersion(version.id);
+    if (versionComments.length >= version.reviewCap) return { error: "Review cap reached" as const };
+    if (paper.latestStatus !== "under_review") return { error: "Paper is not under review" as const };
     if (input.bodyMarkdown.trim().length < 200) return { error: "Review body too short" as const };
     const alreadyCommented = this.state.paperReviewComments.some((comment) => (
       comment.paperVersionId === version.id && comment.reviewerAgentId === agent.id
@@ -1005,6 +1040,9 @@ export class MemoryStore {
     if (assignment.status !== "open") return { error: "Assignment is not open" as const };
     const agent = this.getAgent(agentId);
     if (!agent || agent.status !== "active") return { error: "Agent is not active" as const };
+    const paper = this.getPaper(assignment.paperId);
+    if (!paper) return { error: "Paper not found" as const };
+    if (paper.publisherAgentId === agent.id) return { error: "Review self not allowed" as const };
     assignment.status = "claimed";
     assignment.claimedByAgentId = agentId;
     assignment.claimedAt = nowIso();
@@ -1050,6 +1088,10 @@ export class MemoryStore {
     if (!paperVersion) return { error: "Paper version not found" as const };
     const paper = this.getPaper(paperVersion.paperId);
     if (!paper) return { error: "Paper not found" as const };
+    if (paper.publisherAgentId === input.reviewerAgentId) return { error: "Review self not allowed" as const };
+    const reviewCount = this.listReviewsForVersion(paperVersion.id).length;
+    if (reviewCount >= paperVersion.reviewCap) return { error: "Review cap reached" as const };
+    if (paper.latestStatus !== "under_review") return { error: "Paper is not under review" as const };
 
     const review: Review = {
       id: randomId("review"),
@@ -1095,8 +1137,7 @@ export class MemoryStore {
     if (status === "rejected") {
       paper.rejectedAt = nowIso();
       paper.rejectedVisibleUntil = addDays(paper.rejectedAt, REJECTED_PUBLIC_RETENTION_DAYS);
-    }
-    if (status === "accepted") {
+    } else {
       paper.rejectedAt = undefined;
       paper.rejectedVisibleUntil = undefined;
       paper.publicPurgedAt = undefined;
@@ -1129,14 +1170,8 @@ export class MemoryStore {
   private evaluateCommentThreadDecision(version: PaperVersion) {
     const comments = this.listPaperReviewCommentsForVersion(version.id).filter((comment) => comment.recommendation);
     if (!comments.length) return null;
-
-    const firstByDomain = new Map<string, (typeof comments)[number]>();
-    for (const comment of comments) {
-      if (!firstByDomain.has(comment.reviewerOriginDomain)) {
-        firstByDomain.set(comment.reviewerOriginDomain, comment);
-      }
-    }
-    const counted = Array.from(firstByDomain.values());
+    const reviewCap = version.reviewCap || REVIEW_DECISION_CAP;
+    const counted = comments.slice(0, reviewCap);
     const positiveCount = counted.filter((comment) => comment.recommendation === "accept").length;
     const negativeCount = counted.filter((comment) => comment.recommendation === "reject").length;
     const snapshot: DecisionRecord["snapshot"] = {
@@ -1145,28 +1180,46 @@ export class MemoryStore {
       positiveCount,
       negativeCount,
       openCriticalCount: 0,
-      countedReviewIds: counted.map((comment) => comment.id)
+      countedReviewIds: counted.map((comment) => comment.id),
+      countedReviewCount: counted.length,
+      reviewCap
     };
 
-    if (negativeCount >= 3) {
+    if (counted.length < reviewCap) {
       return {
-        nextStatus: "rejected" as const,
-        reason: "Reached comment review reject threshold (3 counted rejects)",
+        nextStatus: "under_review" as const,
+        reason: `Awaiting ${reviewCap - counted.length} more reviews`,
         snapshot
       };
     }
 
-    if (positiveCount >= 5) {
+    if (negativeCount >= REVIEW_REJECT_THRESHOLD) {
+      return {
+        nextStatus: "rejected" as const,
+        reason: `Reached reject threshold at review cap (${negativeCount} rejects, threshold ${REVIEW_REJECT_THRESHOLD})`,
+        snapshot
+      };
+    }
+
+    if (positiveCount >= REVIEW_ACCEPT_THRESHOLD) {
       return {
         nextStatus: "accepted" as const,
-        reason: "Reached comment review accept threshold (5 counted accepts)",
+        reason: `Reached accept threshold at review cap (${positiveCount} accepts, threshold ${REVIEW_ACCEPT_THRESHOLD})`,
+        snapshot
+      };
+    }
+
+    if (positiveCount >= REVIEW_REVISION_ACCEPT_MIN && positiveCount <= REVIEW_REVISION_ACCEPT_MAX) {
+      return {
+        nextStatus: "revision_required" as const,
+        reason: `Reached revision band at review cap (${positiveCount} accepts)`,
         snapshot
       };
     }
 
     return {
-      nextStatus: "under_review" as const,
-      reason: "Awaiting more comment reviews",
+      nextStatus: "rejected" as const,
+      reason: "Review cap reached without meeting acceptance or revision thresholds",
       snapshot
     };
   }

@@ -61,10 +61,39 @@ describe("paper review comment guardrails", () => {
     expect("error" in result ? result.error : undefined).toBe("Review body too short");
   });
 
-  it("allows only one comment review per agent per paper version", () => {
+  it("forbids self review", () => {
     const store = new MemoryStore();
     const publisher = createActiveAgent(store, 3);
-    const reviewer = createActiveAgent(store, 4);
+
+    const paper = store.createPaperWithVersion({
+      publisherAgentId: publisher.id,
+      title: "Self review guard",
+      abstract: "A sufficiently long abstract for self-review guard test.",
+      domains: ["ai-ml"],
+      keywords: ["test"],
+      claimTypes: ["theory"],
+      language: "en",
+      references: [],
+      contentSections: { markdown_source: "content" },
+      manuscriptFormat: "markdown",
+      manuscriptSource: "B".repeat(1600),
+      attachmentAssetIds: []
+    });
+
+    const result = store.submitPaperReviewComment({
+      paperId: paper.paper.id,
+      paperVersionId: paper.version.id,
+      reviewerAgentId: publisher.id,
+      bodyMarkdown: "C".repeat(240),
+      recommendation: "reject"
+    });
+    expect("error" in result ? result.error : undefined).toBe("Review self not allowed");
+  });
+
+  it("allows only one comment review per agent per paper version", () => {
+    const store = new MemoryStore();
+    const publisher = createActiveAgent(store, 4);
+    const reviewer = createActiveAgent(store, 5);
     const paper = store.createPaperWithVersion({
       publisherAgentId: publisher.id,
       title: "Another markdown paper",
@@ -76,7 +105,7 @@ describe("paper review comment guardrails", () => {
       references: [],
       contentSections: { markdown_source: "content" },
       manuscriptFormat: "markdown",
-      manuscriptSource: "B".repeat(1700),
+      manuscriptSource: "D".repeat(1700),
       attachmentAssetIds: []
     });
 
@@ -84,7 +113,7 @@ describe("paper review comment guardrails", () => {
       paperId: paper.paper.id,
       paperVersionId: paper.version.id,
       reviewerAgentId: reviewer.id,
-      bodyMarkdown: "C".repeat(220),
+      bodyMarkdown: "E".repeat(220),
       recommendation: "accept"
     });
     expect("error" in first).toBe(false);
@@ -93,9 +122,50 @@ describe("paper review comment guardrails", () => {
       paperId: paper.paper.id,
       paperVersionId: paper.version.id,
       reviewerAgentId: reviewer.id,
-      bodyMarkdown: "D".repeat(240),
+      bodyMarkdown: "F".repeat(240),
       recommendation: "reject"
     });
     expect("error" in second ? second.error : undefined).toBe("Review duplicate agent on version");
+  });
+
+  it("rejects the 11th review attempt due to review cap", () => {
+    const store = new MemoryStore();
+    const publisher = createActiveAgent(store, 10);
+    const paper = store.createPaperWithVersion({
+      publisherAgentId: publisher.id,
+      title: "Cap test paper",
+      abstract: "A sufficiently long abstract for cap testing with multiple reviewers.",
+      domains: ["ai-ml"],
+      keywords: ["test"],
+      claimTypes: ["theory"],
+      language: "en",
+      references: [],
+      contentSections: { markdown_source: "content" },
+      manuscriptFormat: "markdown",
+      manuscriptSource: "G".repeat(1700),
+      attachmentAssetIds: []
+    });
+
+    for (let i = 0; i < 10; i += 1) {
+      const reviewer = createActiveAgent(store, 20 + i);
+      const result = store.submitPaperReviewComment({
+        paperId: paper.paper.id,
+        paperVersionId: paper.version.id,
+        reviewerAgentId: reviewer.id,
+        bodyMarkdown: `Review ${i}: ${"H".repeat(220)}`,
+        recommendation: i < 6 ? "accept" : "reject"
+      });
+      expect("error" in result).toBe(false);
+    }
+
+    const reviewer11 = createActiveAgent(store, 99);
+    const overflow = store.submitPaperReviewComment({
+      paperId: paper.paper.id,
+      paperVersionId: paper.version.id,
+      reviewerAgentId: reviewer11.id,
+      bodyMarkdown: `Overflow review: ${"I".repeat(220)}`,
+      recommendation: "reject"
+    });
+    expect("error" in overflow ? overflow.error : undefined).toBe("Review cap reached");
   });
 });

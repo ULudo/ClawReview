@@ -2,7 +2,12 @@ import {
   CODE_REVIEW_ROLE,
   NEGATIVE_RECOMMENDATIONS,
   POSITIVE_RECOMMENDATIONS,
-  REQUIRED_REVIEW_ROLES_BASE
+  REQUIRED_REVIEW_ROLES_BASE,
+  REVIEW_ACCEPT_THRESHOLD,
+  REVIEW_DECISION_CAP,
+  REVIEW_REJECT_THRESHOLD,
+  REVIEW_REVISION_ACCEPT_MAX,
+  REVIEW_REVISION_ACCEPT_MIN
 } from "@/lib/constants";
 import type { PaperVersion, Review, ReviewRole, Recommendation } from "@/lib/types";
 import { sortByCreatedAtAsc } from "@/lib/utils";
@@ -14,10 +19,12 @@ export interface DecisionSnapshot {
   positiveCount: number;
   negativeCount: number;
   openCriticalCount: number;
+  countedReviewCount?: number;
+  reviewCap?: number;
 }
 
 export interface DecisionEvaluation {
-  nextStatus: "under_review" | "accepted" | "rejected";
+  nextStatus: "under_review" | "revision_required" | "accepted" | "rejected";
   reason: string;
   snapshot: DecisionSnapshot;
 }
@@ -49,16 +56,21 @@ function countOpenCriticals(reviews: Review[]): number {
   return reviews.flatMap((r) => r.findings).filter((f) => f.severity === "critical" && f.status === "open").length;
 }
 
+function takeDecisionWindow(reviews: Review[], reviewCap: number): Review[] {
+  return sortByCreatedAtAsc(reviews).slice(0, reviewCap);
+}
+
 export function evaluateDecision(params: {
   version: PaperVersion;
   reviews: Review[];
-  now?: string;
   forceReject?: boolean;
   forceRejectReason?: string;
 }): DecisionEvaluation {
-  const nowIso = params.now ?? new Date().toISOString();
+  const reviewCap = Number.isFinite(params.version.reviewCap) && params.version.reviewCap > 0
+    ? params.version.reviewCap
+    : REVIEW_DECISION_CAP;
   const requiredRoles = getRequiredRolesForVersion(params.version);
-  const counted = countByOriginDomain(params.reviews);
+  const counted = takeDecisionWindow(countByOriginDomain(params.reviews), reviewCap);
   const countedIds = new Set(counted.map((r) => r.id));
   const coveredRoles = Array.from(new Set(params.reviews.map((r) => r.role))).filter((role): role is ReviewRole => requiredRoles.includes(role as ReviewRole));
   const positiveCount = recommendationCount(counted, POSITIVE_RECOMMENDATIONS);
@@ -71,7 +83,9 @@ export function evaluateDecision(params: {
     countedReviewIds: counted.map((r) => r.id),
     positiveCount,
     negativeCount,
-    openCriticalCount
+    openCriticalCount,
+    countedReviewCount: counted.length,
+    reviewCap
   };
 
   if (params.forceReject) {
@@ -82,35 +96,41 @@ export function evaluateDecision(params: {
     };
   }
 
-  if (negativeCount >= 3) {
+  if (counted.length < reviewCap) {
     return {
-      nextStatus: "rejected",
-      reason: "Reached early reject threshold (3 counted negative reviews)",
+      nextStatus: "under_review",
+      reason: `Awaiting ${reviewCap - counted.length} more counted reviews`,
       snapshot
     };
   }
 
-  const hasAllRequiredRoles = requiredRoles.every((role) => coveredRoles.includes(role));
-  const requiredPositive = params.version.codeRequired ? 5 : 4;
-  if (hasAllRequiredRoles && openCriticalCount === 0 && positiveCount >= requiredPositive) {
+  if (negativeCount >= REVIEW_REJECT_THRESHOLD) {
+    return {
+      nextStatus: "rejected",
+      reason: `Reached reject threshold at review cap (${negativeCount} rejects, threshold ${REVIEW_REJECT_THRESHOLD})`,
+      snapshot
+    };
+  }
+
+  if (positiveCount >= REVIEW_ACCEPT_THRESHOLD) {
     return {
       nextStatus: "accepted",
-      reason: "Acceptance threshold reached with required role coverage and no open critical findings",
+      reason: `Reached accept threshold at review cap (${positiveCount} accepts, threshold ${REVIEW_ACCEPT_THRESHOLD})`,
       snapshot
     };
   }
 
-  if (new Date(nowIso).getTime() >= new Date(params.version.reviewWindowEndsAt).getTime()) {
+  if (positiveCount >= REVIEW_REVISION_ACCEPT_MIN && positiveCount <= REVIEW_REVISION_ACCEPT_MAX) {
     return {
-      nextStatus: "rejected",
-      reason: "Review deadline reached without satisfying acceptance criteria",
+      nextStatus: "revision_required",
+      reason: `Reached revision band at review cap (${positiveCount} accepts)`,
       snapshot
     };
   }
 
   return {
-    nextStatus: "under_review",
-    reason: "Awaiting more reviews or resolution of blockers",
+    nextStatus: "rejected",
+    reason: "Review cap reached without meeting acceptance or revision thresholds",
     snapshot
   };
 }

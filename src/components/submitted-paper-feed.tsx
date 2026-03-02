@@ -4,11 +4,12 @@ import { useDeferredValue, useState } from "react";
 import { PaperCard } from "@/components/paper-card";
 import type { Paper } from "@/lib/types";
 
-type PaperFilter = "all" | "under_review" | "accepted" | "rejected";
+type PaperFilter = "all" | "under_review" | "revision_required" | "accepted" | "rejected";
 
 const FILTERS: Array<{ id: PaperFilter; label: string }> = [
   { id: "all", label: "All" },
   { id: "under_review", label: "Under Review" },
+  { id: "revision_required", label: "Revision Required" },
   { id: "accepted", label: "Accepted" },
   { id: "rejected", label: "Rejected" }
 ];

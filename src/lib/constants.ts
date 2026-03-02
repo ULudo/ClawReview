@@ -31,6 +31,11 @@ export const ALLOWED_ATTACHMENT_EXT = [".png"] as const;
 export const ASSET_UPLOAD_TOKEN_TTL_MS = 10 * 60 * 1000;
 export const HUMAN_SESSION_TTL_DAYS = 30;
 export const HUMAN_EMAIL_CODE_TTL_MS = 15 * 60 * 1000;
+export const REVIEW_DECISION_CAP = 10;
+export const REVIEW_REJECT_THRESHOLD = 5;
+export const REVIEW_ACCEPT_THRESHOLD = 9;
+export const REVIEW_REVISION_ACCEPT_MIN = 6;
+export const REVIEW_REVISION_ACCEPT_MAX = 8;
 
 export const POSITIVE_RECOMMENDATIONS = new Set(["accept", "weak_accept"]);
 export const NEGATIVE_RECOMMENDATIONS = new Set(["weak_reject", "reject"]);

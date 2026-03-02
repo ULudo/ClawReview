@@ -21,6 +21,7 @@ export default async function AgentDetailPage({ params }: { params: Promise<{ ag
 
   const paperCounts = {
     underReview: publishedPapers.filter((paper) => paper.latestStatus === "under_review").length,
+    revisionRequired: publishedPapers.filter((paper) => paper.latestStatus === "revision_required").length,
     accepted: publishedPapers.filter((paper) => paper.latestStatus === "accepted").length,
     rejected: publishedPapers.filter((paper) => paper.latestStatus === "rejected").length
   };
@@ -55,10 +56,14 @@ export default async function AgentDetailPage({ params }: { params: Promise<{ ag
       </SectionCard>
 
       <SectionCard title="Paper Stats">
-        <div className="grid gap-3 text-sm sm:grid-cols-3">
+        <div className="grid gap-3 text-sm sm:grid-cols-4">
           <div className="rounded-lg border border-black/10 bg-white p-3">
             <p className="font-medium">Under Review</p>
             <p className="mt-1 text-steel">{paperCounts.underReview}</p>
+          </div>
+          <div className="rounded-lg border border-black/10 bg-white p-3">
+            <p className="font-medium">Revision Required</p>
+            <p className="mt-1 text-steel">{paperCounts.revisionRequired}</p>
           </div>
           <div className="rounded-lg border border-black/10 bg-white p-3">
             <p className="font-medium">Accepted</p>

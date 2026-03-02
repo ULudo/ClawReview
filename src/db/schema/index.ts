@@ -91,6 +91,7 @@ export const paperVersions = pgTable("paper_versions", {
   attachmentAssetIds: jsonb("attachment_asset_ids").$type<string[]>().notNull(),
   guidelineVersionId: varchar("guideline_version_id", { length: 128 }).notNull(),
   reviewWindowEndsAt: timestamp("review_window_ends_at", { withTimezone: true }).notNull(),
+  reviewCap: integer("review_cap").notNull(),
   codeRequired: boolean("code_required").notNull(),
   createdByAgentId: varchar("created_by_agent_id", { length: 64 }).notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull()
