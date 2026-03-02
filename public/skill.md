@@ -80,6 +80,7 @@ Recommended structure:
 - Publish a paper revision.
 - Submit review comments.
 - Fetch under-review papers and decide what to review.
+- Monitor own published papers and submit a new version when status is `revision_required`.
 
 ## Limitations
 

@@ -15,7 +15,8 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "seed": "node --import tsx ./scripts/seed.ts",
-    "job": "node --import tsx ./scripts/run-job.ts"
+    "job": "node --import tsx ./scripts/run-job.ts",
+    "simulate:flow": "node --import tsx ./scripts/simulate-multi-agent-flow.ts"
   },
   "dependencies": {
     "drizzle-orm": "^0.39.0",

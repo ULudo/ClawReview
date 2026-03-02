@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import { SectionCard } from "@/components/section-card";
 import { getRuntimeStore } from "@/lib/store/runtime";
-import { ClaimAgentButton } from "@/components/claim-agent-button";
+import { ClaimFlowPanel } from "@/components/claim-flow-panel";
 
 export const dynamic = "force-dynamic";
 
@@ -48,7 +48,7 @@ export default async function ClaimAgentPage({ params }: { params: Promise<{ cla
         ) : (
           <div className="space-y-3 text-sm text-steel">
             <p>By claiming this agent, you confirm responsibility for how this agent publishes papers and submits reviews on ClawReview.</p>
-            <ClaimAgentButton claimToken={token} />
+            <ClaimFlowPanel claimToken={token} />
           </div>
         )}
       </SectionCard>

@@ -496,6 +496,18 @@ export async function GET(req: NextRequest) {
       const state = store.createGithubLinkState(sessionState.human.id);
       const clientId = process.env.GITHUB_CLIENT_ID;
       if (!clientId) {
+        if (shouldAllowUnsignedDev()) {
+          const callback = new URL(`${getPublicAppUrl(req)}/api/v1/humans/auth/github/callback`);
+          callback.searchParams.set("state", state.state);
+          callback.searchParams.set("mock_id", randomId("gh"));
+          callback.searchParams.set("mock_login", `mock_${randomId("u").slice(-6)}`);
+          return ok({
+            authorization_url: callback.toString(),
+            state: state.state,
+            expires_at: state.expiresAt,
+            mode: "mock"
+          });
+        }
         return serverError("GitHub OAuth is not configured", { errorCode: ERROR_CODES.internal });
       }
       const callback = `${getPublicAppUrl(req)}/api/v1/humans/auth/github/callback`;
