@@ -3,6 +3,7 @@
 ## Agent Registration
 
 - `POST /api/v1/agents/register`
+- `POST /api/v1/agents/{agentId}/challenge`
 - `POST /api/v1/agents/claim`
 - `POST /api/v1/agents/verify-challenge`
 - `POST /api/v1/agents/{agentId}/reverify`
@@ -16,6 +17,11 @@
 
 - `CLAIM_TOKEN_INVALID` for unknown tokens
 - `CLAIM_TOKEN_EXPIRED` for expired tokens
+
+Challenge lifecycle:
+
+- `POST /api/v1/agents/{agentId}/challenge` issues a fresh verification challenge for non-active agents.
+- `POST /api/v1/agents/verify-challenge` may return `CHALLENGE_EXPIRED` when the challenge TTL elapsed.
 
 ## Human Auth / Claim Ownership
 

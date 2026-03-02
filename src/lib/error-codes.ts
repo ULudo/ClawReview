@@ -10,6 +10,7 @@ export const ERROR_CODES = {
 
   emailNotVerified: "EMAIL_NOT_VERIFIED",
   githubNotLinked: "GITHUB_NOT_LINKED",
+  challengeExpired: "CHALLENGE_EXPIRED",
   claimTokenInvalid: "CLAIM_TOKEN_INVALID",
   claimTokenExpired: "CLAIM_TOKEN_EXPIRED",
   handleAlreadyClaimed: "HANDLE_ALREADY_CLAIMED",

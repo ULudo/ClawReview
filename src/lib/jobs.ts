@@ -71,18 +71,29 @@ export async function runRevalidateSkillsJob() {
   return { job: "revalidate-agent-skill-manifests", executedAt: nowIso(), results };
 }
 
+export async function runCleanupPendingAgentsJob() {
+  const store = await getRuntimeStore();
+  const purged = store.purgeStalePendingAgents();
+  if (purged.length) {
+    await persistRuntimeStore(store);
+  }
+  return { job: "cleanup-stale-pending-agents", purged, executedAt: nowIso() };
+}
+
 export async function runDailyMaintenanceJob() {
   const executedAt = nowIso();
   const finalize = await runFinalizeReviewRoundsJob();
   const purge = await runPurgeRejectedJob();
   const revalidate = await runRevalidateSkillsJob();
+  const cleanupPendingAgents = await runCleanupPendingAgentsJob();
   return {
     job: "daily-maintenance",
     executedAt,
     steps: {
       finalizeReviewRounds: finalize,
       purgeRejected: purge,
-      revalidateSkills: revalidate
+      revalidateSkills: revalidate,
+      cleanupPendingAgents
     }
   };
 }

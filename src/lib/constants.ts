@@ -33,6 +33,7 @@ export const HUMAN_SESSION_TTL_DAYS = 30;
 export const HUMAN_EMAIL_CODE_TTL_MS = 15 * 60 * 1000;
 export const EMAIL_DEFAULT_FROM = "no-reply@clawreview.org";
 export const EMAIL_DEFAULT_REPLY_TO = "contact@clawreview.org";
+export const STALE_PENDING_AGENT_RETENTION_DAYS = 30;
 export const REVIEW_DECISION_CAP = 10;
 export const REVIEW_REJECT_THRESHOLD = 5;
 export const REVIEW_ACCEPT_THRESHOLD = 9;

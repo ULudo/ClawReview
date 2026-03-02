@@ -14,6 +14,7 @@ import {
   REVIEW_REJECT_THRESHOLD,
   REVIEW_REVISION_ACCEPT_MAX,
   REVIEW_REVISION_ACCEPT_MIN,
+  STALE_PENDING_AGENT_RETENTION_DAYS,
   REVIEW_WINDOW_DAYS
 } from "@/lib/constants";
 import { evaluateDecision, getRequiredRolesForVersion } from "@/lib/decision-engine/evaluate";
@@ -683,6 +684,39 @@ export class MemoryStore {
       reasonText
     });
     return agent;
+  }
+
+  purgeStalePendingAgents(options?: { olderThanDays?: number }) {
+    const olderThanDays = options?.olderThanDays ?? STALE_PENDING_AGENT_RETENTION_DAYS;
+    const cutoff = Date.now() - olderThanDays * 24 * 60 * 60 * 1000;
+    const staleAgents = this.state.agents.filter((agent) => {
+      if (agent.status !== "pending_claim" && agent.status !== "pending_agent_verification") return false;
+      const updatedAtMs = new Date(agent.updatedAt).getTime();
+      if (!Number.isFinite(updatedAtMs) || updatedAtMs > cutoff) return false;
+      const hasPaper = this.state.papers.some((paper) => paper.publisherAgentId === agent.id);
+      return !hasPaper;
+    });
+    if (!staleAgents.length) return [];
+
+    const staleIds = new Set(staleAgents.map((agent) => agent.id));
+    this.state.agents = this.state.agents.filter((agent) => !staleIds.has(agent.id));
+    this.state.agentSkillManifests = this.state.agentSkillManifests.filter((manifest) => !staleIds.has(manifest.agentId));
+    this.state.agentClaimTickets = this.state.agentClaimTickets.filter((ticket) => !staleIds.has(ticket.agentId));
+    this.state.agentVerificationChallenges = this.state.agentVerificationChallenges.filter((challenge) => !staleIds.has(challenge.agentId));
+    this.state.requestNonces = this.state.requestNonces.filter((nonce) => !staleIds.has(nonce.agentId));
+    this.state.idempotencyRecords = this.state.idempotencyRecords.filter((record) => !record.agentId || !staleIds.has(record.agentId));
+
+    for (const agentId of staleIds) {
+      this.audit({
+        actorType: "system",
+        action: "agent.pending.purged",
+        targetType: "agent",
+        targetId: agentId,
+        reasonCode: "stale_pending_retention",
+        reasonText: `Agent pending for more than ${olderThanDays} days`
+      });
+    }
+    return [...staleIds];
   }
 
   recordNonce(agentId: string, nonce: string) {

@@ -68,6 +68,66 @@ describe("claim onboarding api", () => {
     expect(body.error_code).toBe("CLAIM_TOKEN_EXPIRED");
   });
 
+  it("issues a fresh verification challenge for pending agents", async () => {
+    const { route, runtime } = await loadModules();
+    const store = await runtime.getRuntimeStore();
+    const registered = store.createOrReplacePendingAgent({
+      name: "Agent Fresh Challenge",
+      handle: "agent_fresh_challenge",
+      publicKey: "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
+      endpointBaseUrl: "https://agent-fresh.example.org",
+      skillMdUrl: "https://agent-fresh.example.org/skill.md",
+      verifiedOriginDomain: "agent-fresh.example.org",
+      capabilities: ["publisher", "reviewer"],
+      domains: ["ai-ml"],
+      protocolVersion: "v1"
+    });
+    if ("error" in registered) throw new Error(registered.error);
+
+    const req = createRequest(`http://localhost:3000/api/v1/agents/${registered.agent.id}/challenge`, { method: "POST" });
+    const res = await route.POST(req);
+    const body = await res.json();
+
+    expect(res.status).toBe(201);
+    expect(body.agent_id).toBe(registered.agent.id);
+    expect(body.challenge.id).toBeTruthy();
+    expect(body.challenge.message).toContain(`agent_id=${registered.agent.id}`);
+  });
+
+  it("returns CHALLENGE_EXPIRED when verify uses an expired challenge", async () => {
+    const { route, runtime } = await loadModules();
+    const store = await runtime.getRuntimeStore();
+    const registered = store.createOrReplacePendingAgent({
+      name: "Agent Expired Challenge",
+      handle: "agent_expired_challenge",
+      publicKey: "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
+      endpointBaseUrl: "https://agent-expired.example.org",
+      skillMdUrl: "https://agent-expired.example.org/skill.md",
+      verifiedOriginDomain: "agent-expired.example.org",
+      capabilities: ["publisher", "reviewer"],
+      domains: ["ai-ml"],
+      protocolVersion: "v1"
+    });
+    if ("error" in registered) throw new Error(registered.error);
+    const challenge = store.createAgentVerificationChallenge(registered.agent.id);
+    challenge.expiresAt = new Date(Date.now() - 60_000).toISOString();
+
+    const req = createRequest("http://localhost:3000/api/v1/agents/verify-challenge", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        agent_id: registered.agent.id,
+        challenge_id: challenge.id,
+        signature: "invalid"
+      })
+    });
+    const res = await route.POST(req);
+    const body = await res.json();
+
+    expect(res.status).toBe(401);
+    expect(body.error_code).toBe("CHALLENGE_EXPIRED");
+  });
+
   it("redirects github callback to claim page in redirect mode", async () => {
     const { route, runtime } = await loadModules();
     const store = await runtime.getRuntimeStore();
@@ -147,4 +207,3 @@ describe("claim onboarding api", () => {
     expect(body.error_code).toBe("INTERNAL_ERROR");
   });
 });
-

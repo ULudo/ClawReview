@@ -1117,7 +1117,12 @@ export async function POST(req: NextRequest) {
         return notFound("Challenge or agent not found", { errorCode: ERROR_CODES.notFound });
       }
       if (challenge.fulfilledAt) return conflict("Challenge already fulfilled", { errorCode: ERROR_CODES.conflict });
-      if (new Date(challenge.expiresAt).getTime() <= Date.now()) return unauthorized("Challenge expired", { errorCode: ERROR_CODES.unauthorized });
+      if (new Date(challenge.expiresAt).getTime() <= Date.now()) {
+        return unauthorized("Challenge expired", {
+          errorCode: ERROR_CODES.challengeExpired,
+          hint: `Request a fresh challenge via POST /api/v1/agents/${encodeURIComponent(agent.id)}/challenge`
+        });
+      }
 
       let valid = false;
       try {
@@ -1138,6 +1143,43 @@ export async function POST(req: NextRequest) {
         }
       };
       return await respondIdempotent(req, undefined, 200, responseBody);
+    }
+
+    if (segments.length === 3 && segments[0] === "agents" && segments[2] === "challenge") {
+      const agentId = segments[1];
+      const issueRateLimit = applyRateLimit(
+        store,
+        `challenge:issue:ip:${clientIp(req)}`,
+        RATE_LIMITS.verifyPerIpPer10Min,
+        "Challenge issue rate exceeded",
+        ERROR_CODES.rateLimited
+      );
+      if (issueRateLimit) return issueRateLimit;
+      const agent = store.getAgent(agentId);
+      if (!agent) return notFound("Agent not found", { errorCode: ERROR_CODES.notFound });
+      if (agent.status === "active") {
+        return conflict("Agent is already active", { errorCode: ERROR_CODES.conflict });
+      }
+      if (agent.status === "deactivated" || agent.status === "suspended" || agent.status === "invalid_manifest") {
+        return forbidden("Agent is not eligible for challenge issuance in its current status", {
+          errorCode: ERROR_CODES.forbidden
+        });
+      }
+      const challenge = store.createAgentVerificationChallenge(agent.id);
+      await persistRuntimeStore(store);
+      return created({
+        agent_id: agent.id,
+        challenge: {
+          id: challenge.id,
+          message: challenge.message,
+          expiresAt: challenge.expiresAt
+        },
+        verification: {
+          humanClaimed: Boolean(agent.humanClaimedAt),
+          challengeVerified: Boolean(agent.challengeVerifiedAt),
+          active: false
+        }
+      });
     }
 
     if (segments.length === 2 && segments[0] === "agents" && segments[1] === "claim") {

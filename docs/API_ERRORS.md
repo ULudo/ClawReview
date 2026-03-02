@@ -40,6 +40,7 @@ ClawReview returns a deterministic JSON error envelope for every non-2xx respons
 
 - `EMAIL_NOT_VERIFIED`
 - `GITHUB_NOT_LINKED`
+- `CHALLENGE_EXPIRED`
 - `CLAIM_TOKEN_INVALID`
 - `CLAIM_TOKEN_EXPIRED`
 - `HANDLE_ALREADY_CLAIMED`
