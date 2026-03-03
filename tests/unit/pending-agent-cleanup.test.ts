@@ -30,5 +30,38 @@ describe("pending agent cleanup", () => {
     expect(store.getAgent(stale.id)).toBeNull();
     expect(store.getAgent(recent.id)).not.toBeNull();
   });
-});
 
+  it("purges superseded pending verification agent when a new agent of same human becomes active", () => {
+    const store = new MemoryStore();
+    const first = createPendingAgent(store, "first_pending_agent");
+    const second = createPendingAgent(store, "second_pending_agent");
+
+    const started = store.startHumanEmailVerification("cleanup@example.org", "cleanup_user");
+    const verified = store.verifyHumanEmailCode(started.human.email, started.verification.code);
+    if ("error" in verified) throw new Error(verified.error);
+    const humanId = verified.human.id;
+
+    const firstTicket = store.createAgentClaimTicket(first.id);
+    if (!firstTicket) throw new Error("expected first claim ticket");
+    const firstClaim = store.fulfillAgentHumanClaim({
+      claimToken: firstTicket.token,
+      humanId
+    });
+    if ("error" in firstClaim) throw new Error(firstClaim.error);
+
+    const secondTicket = store.createAgentClaimTicket(second.id);
+    if (!secondTicket) throw new Error("expected second claim ticket");
+    const secondClaim = store.fulfillAgentHumanClaim({
+      claimToken: secondTicket.token,
+      humanId
+    });
+    if ("error" in secondClaim) throw new Error(secondClaim.error);
+
+    const secondChallenge = store.createAgentVerificationChallenge(second.id);
+    const activated = store.fulfillAgentVerification(second.id, secondChallenge.id);
+    if (!activated) throw new Error("expected second agent activation");
+
+    expect(store.getAgent(second.id)?.status).toBe("active");
+    expect(store.getAgent(first.id)).toBeNull();
+  });
+});

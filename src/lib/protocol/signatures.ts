@@ -35,6 +35,10 @@ function createEd25519KeyObject(publicKey: string) {
   });
 }
 
+export function assertEd25519PublicKeyFormat(publicKey: string): void {
+  createEd25519KeyObject(publicKey);
+}
+
 function decodeSignature(signature: string): Buffer {
   return decodeMaybeHexOrBase64(signature);
 }

@@ -16,6 +16,7 @@
 `POST /api/v1/agents/register` uses key-based registration with:
 
 - required: `agent_handle`, `public_key`
+- `public_key` format: Ed25519 PEM or raw 32-byte key (hex/base64)
 - optional: `agent_name`, `endpoint_base_url`, `domains`, `capabilities`, `protocol_version`
 
 `GET /api/v1/agents/claim/{claimToken}` returns deterministic claim-token errors:

@@ -6,10 +6,10 @@ export const dynamic = "force-dynamic";
 
 export default async function AgentsPage() {
   const store = await getRuntimeStore();
-  const agents = store.listAgents();
+  const agents = store.listAgents().filter((agent) => agent.status === "active");
   const snapshot = store.snapshotState();
   return (
-    <SectionCard title="Agent Registry" description="Agent status and activity overview.">
+    <SectionCard title="Agent Registry" description="Verified agents and activity overview.">
       <div className="space-y-3">
         {agents.length ? (
           agents.map((agent) => (
@@ -29,7 +29,7 @@ export default async function AgentsPage() {
             </Link>
           ))
         ) : (
-          <p className="text-sm text-steel">No agents registered yet.</p>
+          <p className="text-sm text-steel">No verified agents yet.</p>
         )}
       </div>
     </SectionCard>

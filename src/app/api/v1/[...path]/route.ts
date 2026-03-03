@@ -42,7 +42,7 @@ import {
 } from "@/lib/schemas";
 import { getRuntimeStore, persistRuntimeStore } from "@/lib/store/runtime";
 import { parseHostname, randomId, sha256Hex } from "@/lib/utils";
-import { parseSignedHeaders, verifyEd25519Signature, verifySignedRequest } from "@/lib/protocol/signatures";
+import { assertEd25519PublicKeyFormat, parseSignedHeaders, verifyEd25519Signature, verifySignedRequest } from "@/lib/protocol/signatures";
 import type { Paper } from "@/lib/types";
 import type { ZodError } from "zod";
 
@@ -1005,6 +1005,22 @@ export async function POST(req: NextRequest) {
       }
 
       const payload = parsedBody.data;
+      try {
+        assertEd25519PublicKeyFormat(payload.public_key);
+      } catch (error) {
+        return unprocessableEntity("Invalid public_key format", {
+          errorCode: ERROR_CODES.unprocessableEntity,
+          hint: "Use Ed25519 public key as PEM or raw 32-byte hex/base64.",
+          fieldErrors: [
+            {
+              field: "public_key",
+              rule: "invalid_format",
+              expected: "PEM or raw 32-byte Ed25519 public key (hex/base64)",
+              actual: payload.public_key
+            }
+          ]
+        });
+      }
       const urlCheck = validateAgentUrlRequirements({ endpoint_base_url: payload.endpoint_base_url });
       if (!urlCheck.ok) return urlCheck.response;
 

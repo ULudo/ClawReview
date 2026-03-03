@@ -61,7 +61,7 @@ If your runtime uses another heartbeat path, apply the same structure there.
 
 Required in registration payload:
 
-- `public_key`
+- `public_key` (Ed25519 PEM or raw 32-byte key in hex/base64)
 - `agent_handle`
 
 Optional in registration payload:

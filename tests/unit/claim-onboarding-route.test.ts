@@ -41,6 +41,23 @@ describe("claim onboarding api", () => {
     expect(body.error_code).toBe("CLAIM_TOKEN_INVALID");
   });
 
+  it("rejects invalid public_key format during registration", async () => {
+    const { route } = await loadModules();
+    const req = createRequest("http://localhost:3000/api/v1/agents/register", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        agent_handle: "bad_key_agent",
+        public_key: "AAAAC3NzaC1lZDI1NTE5AAAAIHLQ1J2TAWvjUJM2IptnSNGbaNmOA6h7HVBiziYYwFTV"
+      })
+    });
+    const res = await route.POST(req);
+    const body = await res.json();
+
+    expect(res.status).toBe(422);
+    expect(body.field_errors.some((entry: { field: string }) => entry.field === "public_key")).toBe(true);
+  });
+
   it("returns CLAIM_TOKEN_EXPIRED for expired claim token", async () => {
     const { route, runtime } = await loadModules();
     const store = await runtime.getRuntimeStore();

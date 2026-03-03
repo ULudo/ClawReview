@@ -647,6 +647,45 @@ export class MemoryStore {
     return { ok: true as const };
   }
 
+  private purgePendingAgentsByIds(agentIds: string[], reasonCode: string, reasonText: string) {
+    if (!agentIds.length) return [];
+    const staleIds = new Set(agentIds);
+    this.state.agents = this.state.agents.filter((agent) => !staleIds.has(agent.id));
+    this.state.agentSkillManifests = this.state.agentSkillManifests.filter((manifest) => !staleIds.has(manifest.agentId));
+    this.state.agentClaimTickets = this.state.agentClaimTickets.filter((ticket) => !staleIds.has(ticket.agentId));
+    this.state.agentVerificationChallenges = this.state.agentVerificationChallenges.filter((challenge) => !staleIds.has(challenge.agentId));
+    this.state.requestNonces = this.state.requestNonces.filter((nonce) => !staleIds.has(nonce.agentId));
+    this.state.idempotencyRecords = this.state.idempotencyRecords.filter((record) => !record.agentId || !staleIds.has(record.agentId));
+
+    for (const agentId of staleIds) {
+      this.audit({
+        actorType: "system",
+        action: "agent.pending.purged",
+        targetType: "agent",
+        targetId: agentId,
+        reasonCode,
+        reasonText
+      });
+    }
+    return [...staleIds];
+  }
+
+  private purgeSupersededPendingAgentsForHuman(humanId: string, keepAgentId: string) {
+    const staleAgentIds = this.state.agents
+      .filter((candidate) => (
+        candidate.ownerHumanId === humanId &&
+        candidate.id !== keepAgentId &&
+        (candidate.status === "pending_claim" || candidate.status === "pending_agent_verification") &&
+        !this.state.papers.some((paper) => paper.publisherAgentId === candidate.id)
+      ))
+      .map((candidate) => candidate.id);
+    return this.purgePendingAgentsByIds(
+      staleAgentIds,
+      "superseded_by_active_agent",
+      `Superseded by newly active agent ${keepAgentId}`
+    );
+  }
+
   fulfillAgentVerification(agentId: string, challengeId: string) {
     const agent = this.getAgent(agentId);
     const challenge = this.getAgentVerificationChallenge(challengeId);
@@ -663,6 +702,9 @@ export class MemoryStore {
       targetType: "agent",
       targetId: agent.id
     });
+    if (agent.status === "active" && agent.ownerHumanId) {
+      this.purgeSupersededPendingAgentsForHuman(agent.ownerHumanId, agent.id);
+    }
     return agent;
   }
 
@@ -696,27 +738,11 @@ export class MemoryStore {
       const hasPaper = this.state.papers.some((paper) => paper.publisherAgentId === agent.id);
       return !hasPaper;
     });
-    if (!staleAgents.length) return [];
-
-    const staleIds = new Set(staleAgents.map((agent) => agent.id));
-    this.state.agents = this.state.agents.filter((agent) => !staleIds.has(agent.id));
-    this.state.agentSkillManifests = this.state.agentSkillManifests.filter((manifest) => !staleIds.has(manifest.agentId));
-    this.state.agentClaimTickets = this.state.agentClaimTickets.filter((ticket) => !staleIds.has(ticket.agentId));
-    this.state.agentVerificationChallenges = this.state.agentVerificationChallenges.filter((challenge) => !staleIds.has(challenge.agentId));
-    this.state.requestNonces = this.state.requestNonces.filter((nonce) => !staleIds.has(nonce.agentId));
-    this.state.idempotencyRecords = this.state.idempotencyRecords.filter((record) => !record.agentId || !staleIds.has(record.agentId));
-
-    for (const agentId of staleIds) {
-      this.audit({
-        actorType: "system",
-        action: "agent.pending.purged",
-        targetType: "agent",
-        targetId: agentId,
-        reasonCode: "stale_pending_retention",
-        reasonText: `Agent pending for more than ${olderThanDays} days`
-      });
-    }
-    return [...staleIds];
+    return this.purgePendingAgentsByIds(
+      staleAgents.map((agent) => agent.id),
+      "stale_pending_retention",
+      `Agent pending for more than ${olderThanDays} days`
+    );
   }
 
   recordNonce(agentId: string, nonce: string) {
