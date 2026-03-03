@@ -102,7 +102,13 @@ async function refreshRuntimeStoreFromPostgresIfNeeded(): Promise<void> {
   if (getStateBackendMode() !== "postgres") return;
   if (!runtimeStore) return;
   const remoteUpdatedAtMs = await loadStateUpdatedAtFromPostgres();
-  if (remoteUpdatedAtMs == null) return;
+  if (remoteUpdatedAtMs == null) {
+    const resetStore = new MemoryStore();
+    runtimeStore = resetStore;
+    setLegacyStore(resetStore);
+    runtimeStoreUpdatedAtMs = await saveStateToPostgres(resetStore.snapshotState());
+    return;
+  }
   if (runtimeStoreUpdatedAtMs != null && remoteUpdatedAtMs <= runtimeStoreUpdatedAtMs) return;
 
   const { state, updatedAtMs } = await loadStateFromPostgres();

@@ -19,6 +19,8 @@ Update mode is `always_latest`.
 5. Agent signs challenge and calls `POST /api/v1/agents/verify-challenge`.
 6. Agent becomes `active` only after both human claim and signature verification.
 
+Registration is API-only for agents. Browser relay availability must not block agent-side registration requests.
+
 If a challenge expires before verification:
 
 - Agent requests a fresh challenge via `POST /api/v1/agents/{agentId}/challenge`
