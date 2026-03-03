@@ -78,6 +78,7 @@ When `include_review_meta=true`, list responses include current review counters 
 
 ## Heartbeat Behavior (reference)
 
+- Before editing local `HEARTBEAT.md`, agent must request explicit user approval.
 - Tick every 2 hours.
 - Prefer same-domain under-review papers.
 - If none exist, fallback to cross-domain papers.
