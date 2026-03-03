@@ -10,8 +10,10 @@ const RUNTIME_STATE_ROW_ID = "singleton";
 type BackendMode = "memory" | "postgres";
 
 let runtimeStore: MemoryStore | null = null;
+let runtimeStoreUpdatedAtMs: number | null = null;
 let initPromise: Promise<MemoryStore> | null = null;
 let persistQueue: Promise<void> = Promise.resolve();
+let refreshPromise: Promise<void> | null = null;
 
 function getStateBackendMode(): BackendMode {
   const configured = (process.env.CLAWREVIEW_STATE_BACKEND || "").trim().toLowerCase();
@@ -52,16 +54,20 @@ async function ensureRuntimeStateTable() {
   `);
 }
 
-async function loadStateFromPostgres(): Promise<AppState | null> {
+async function loadStateFromPostgres(): Promise<{ state: AppState | null; updatedAtMs: number | null }> {
   await ensureRuntimeStateTable();
   const db = getDb();
   const rows = await db.select().from(appRuntimeState).where(eq(appRuntimeState.id, RUNTIME_STATE_ROW_ID)).limit(1);
   const row = rows[0];
-  if (!row) return null;
-  return row.stateJson as AppState;
+  if (!row) return { state: null, updatedAtMs: null };
+  const updatedAtMs = row.updatedAt instanceof Date ? row.updatedAt.getTime() : new Date(row.updatedAt).getTime();
+  return {
+    state: row.stateJson as AppState,
+    updatedAtMs: Number.isFinite(updatedAtMs) ? updatedAtMs : null
+  };
 }
 
-async function saveStateToPostgres(state: AppState): Promise<void> {
+async function saveStateToPostgres(state: AppState): Promise<number> {
   await ensureRuntimeStateTable();
   const db = getDb();
   const updatedAt = new Date();
@@ -75,6 +81,36 @@ async function saveStateToPostgres(state: AppState): Promise<void> {
         updatedAt
       }
     });
+  return updatedAt.getTime();
+}
+
+async function loadStateUpdatedAtFromPostgres(): Promise<number | null> {
+  await ensureRuntimeStateTable();
+  const db = getDb();
+  const rows = await db
+    .select({ updatedAt: appRuntimeState.updatedAt })
+    .from(appRuntimeState)
+    .where(eq(appRuntimeState.id, RUNTIME_STATE_ROW_ID))
+    .limit(1);
+  const row = rows[0];
+  if (!row) return null;
+  const value = row.updatedAt instanceof Date ? row.updatedAt.getTime() : new Date(row.updatedAt).getTime();
+  return Number.isFinite(value) ? value : null;
+}
+
+async function refreshRuntimeStoreFromPostgresIfNeeded(): Promise<void> {
+  if (getStateBackendMode() !== "postgres") return;
+  if (!runtimeStore) return;
+  const remoteUpdatedAtMs = await loadStateUpdatedAtFromPostgres();
+  if (remoteUpdatedAtMs == null) return;
+  if (runtimeStoreUpdatedAtMs != null && remoteUpdatedAtMs <= runtimeStoreUpdatedAtMs) return;
+
+  const { state, updatedAtMs } = await loadStateFromPostgres();
+  if (!state) return;
+  const refreshed = new MemoryStore(state);
+  runtimeStore = refreshed;
+  runtimeStoreUpdatedAtMs = updatedAtMs ?? remoteUpdatedAtMs;
+  setLegacyStore(refreshed);
 }
 
 async function initializeRuntimeStore(): Promise<MemoryStore> {
@@ -82,23 +118,35 @@ async function initializeRuntimeStore(): Promise<MemoryStore> {
   if (backend === "memory") {
     const memoryStore = getLegacyMemoryStore();
     runtimeStore = memoryStore;
+    runtimeStoreUpdatedAtMs = null;
     return memoryStore;
   }
 
-  const loadedState = await loadStateFromPostgres();
+  const { state: loadedState, updatedAtMs } = await loadStateFromPostgres();
   const store = loadedState ? new MemoryStore(loadedState) : new MemoryStore();
   runtimeStore = store;
+  runtimeStoreUpdatedAtMs = updatedAtMs;
   setLegacyStore(store);
 
   if (!loadedState) {
-    await saveStateToPostgres(store.snapshotState());
+    runtimeStoreUpdatedAtMs = await saveStateToPostgres(store.snapshotState());
   }
 
   return store;
 }
 
 export async function getRuntimeStore(): Promise<MemoryStore> {
-  if (runtimeStore) return runtimeStore;
+  if (runtimeStore) {
+    if (getStateBackendMode() === "postgres") {
+      if (!refreshPromise) {
+        refreshPromise = refreshRuntimeStoreFromPostgresIfNeeded().finally(() => {
+          refreshPromise = null;
+        });
+      }
+      await refreshPromise;
+    }
+    return runtimeStore;
+  }
   if (!initPromise) {
     initPromise = initializeRuntimeStore().finally(() => {
       initPromise = null;
@@ -111,12 +159,15 @@ export async function persistRuntimeStore(store?: MemoryStore): Promise<void> {
   if (getStateBackendMode() !== "postgres") return;
   const instance = store ?? (await getRuntimeStore());
   const state = instance.snapshotState();
-  persistQueue = persistQueue.then(() => saveStateToPostgres(state));
+  persistQueue = persistQueue.then(async () => {
+    runtimeStoreUpdatedAtMs = await saveStateToPostgres(state);
+  });
   await persistQueue;
 }
 
 export async function clearRuntimeStateForTests() {
   runtimeStore = null;
+  runtimeStoreUpdatedAtMs = null;
   initPromise = null;
   setLegacyStore(new MemoryStore());
   if (getStateBackendMode() === "postgres") {
