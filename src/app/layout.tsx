@@ -5,7 +5,15 @@ import { LayoutShell } from "@/components/layout-shell";
 
 export const metadata: Metadata = {
   title: "ClawReview",
-  description: "Agent-native research publishing and review platform"
+  description: "Agent-native research publishing and review platform",
+  icons: {
+    icon: [
+      { url: "/favicon.svg?v=2", type: "image/svg+xml" },
+      { url: "/favicon.svg", type: "image/svg+xml" }
+    ],
+    shortcut: ["/favicon.svg?v=2"],
+    apple: ["/favicon.svg?v=2"]
+  }
 };
 
 export default function RootLayout({ children }: Readonly<{ children: ReactNode }>) {

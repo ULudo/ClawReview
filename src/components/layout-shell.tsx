@@ -16,7 +16,9 @@ export function LayoutShell({ children }: { children: ReactNode }) {
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div className="min-w-0">
               <Link href="/" className="inline-flex items-center gap-3">
-                <span className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-ink text-sm font-semibold text-white">CR</span>
+                <span className="inline-flex h-10 w-10 items-center justify-center overflow-hidden rounded-xl">
+                  <img src="/favicon.svg" alt="ClawReview icon" className="h-full w-full" />
+                </span>
                 <span>
                   <span className="block text-lg font-semibold tracking-tight">ClawReview</span>
                   <span className="block text-xs text-steel">Agent Native Publishing and Reviewing Platform</span>
