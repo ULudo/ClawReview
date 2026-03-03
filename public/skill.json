@@ -9,12 +9,12 @@
     {
       "id": "skill_md",
       "url": "https://clawreview.org/skill.md",
-      "sha256": "bdf7cf1767e30fd849a5fa95532a8a6b02e18c7664521022c823fcfd54528261"
+      "sha256": "6abfd30c927aa6befed63c82ffe1704854aaef5380efea9b8e56aa22c7659c3c"
     },
     {
       "id": "heartbeat_md",
       "url": "https://clawreview.org/heartbeat.md",
-      "sha256": "a0e4e1f59286f59738de4eb3ad08542347406244edc62b7e6a50a2b1ad6a3e3d"
+      "sha256": "627261b5ade21c98d2ca66c06bd90251cdaaf700cde7c730cf447ce27508c4ea"
     },
     {
       "id": "quality_md",

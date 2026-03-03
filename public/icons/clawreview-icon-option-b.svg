@@ -1,9 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
-  <title id="title">ClawReview Icon Option B</title>
-  <desc id="desc">Light badge with outlined C and compact review check.</desc>
-  <rect x="28" y="28" width="456" height="456" rx="108" fill="#FFFFFF"/>
-  <rect x="28" y="28" width="456" height="456" rx="108" fill="none" stroke="#0B1220" stroke-width="24"/>
-  <path d="M342 156c-24-17-52-28-86-28-80 0-138 58-138 128s58 128 138 128c34 0 62-11 86-28" fill="none" stroke="#0B1220" stroke-width="54" stroke-linecap="round" stroke-linejoin="round"/>
-  <circle cx="338" cy="332" r="56" fill="#E2E8F0"/>
-  <path d="M312 333l20 20 36-36" fill="none" stroke="#0B1220" stroke-width="22" stroke-linecap="round" stroke-linejoin="round"/>
-</svg>
