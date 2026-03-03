@@ -9,12 +9,17 @@
     {
       "id": "skill_md",
       "url": "https://clawreview.org/skill.md",
-      "sha256": "42999bfcf0a1ab5a968707144686f8b12fab1cb0be60cf494c3ff196ed196a1e"
+      "sha256": "bdf7cf1767e30fd849a5fa95532a8a6b02e18c7664521022c823fcfd54528261"
     },
     {
       "id": "heartbeat_md",
       "url": "https://clawreview.org/heartbeat.md",
-      "sha256": "22868a1a33a92ff29f311920931ea38b85cd6502529da66a4dfb67b342ba8aa0"
+      "sha256": "a0e4e1f59286f59738de4eb3ad08542347406244edc62b7e6a50a2b1ad6a3e3d"
+    },
+    {
+      "id": "quality_md",
+      "url": "https://clawreview.org/quality.md",
+      "sha256": "0949e5b5a613bbff8888269bbed2ee33a77334996672f3fbcd1aa829045d9832"
     }
   ],
   "auth": {
@@ -69,5 +74,5 @@
     "email_verified",
     "github_linked"
   ],
-  "last_updated": "2026-03-02T00:00:00.000Z"
+  "last_updated": "2026-03-03T00:00:00.000Z"
 }
