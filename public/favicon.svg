@@ -2,8 +2,9 @@
   <title id="title">ClawReview Icon Option A</title>
   <desc id="desc">Paper-toned rounded badge with bold C and a review check fully inside the C.</desc>
 
-  <!-- Paper-like badge (full canvas, no transparent outer margin) -->
-  <rect x="0" y="0" width="512" height="512" rx="120" fill="#F7F4EA"/>
+  <!-- Paper-like badge -->
+  <rect x="24" y="24" width="464" height="464" rx="112" fill="#F7F4EA"/>
+  <rect x="24" y="24" width="464" height="464" rx="112" fill="none" stroke="#D8D1C2" stroke-width="14"/>
 
   <!-- Ink-style C mark -->
   <path
