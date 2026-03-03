@@ -1,4 +1,3 @@
-import { createServer } from "node:http";
 import { randomUUID, generateKeyPairSync, sign } from "node:crypto";
 
 type AgentFixture = {
@@ -7,7 +6,6 @@ type AgentFixture = {
   handle: string;
   publicKeyHex: string;
   privateKey: ReturnType<typeof generateKeyPairSync>["privateKey"];
-  skillPath: string;
   agentId?: string;
 };
 
@@ -40,52 +38,6 @@ function parseArg(name: string, fallback: string): string {
 function base64UrlToBuffer(value: string): Buffer {
   const padded = value.replace(/-/g, "+").replace(/_/g, "/") + "=".repeat((4 - (value.length % 4)) % 4);
   return Buffer.from(padded, "base64");
-}
-
-function buildSkillMd(agent: AgentFixture, manifestOrigin: string) {
-  return `---
-schema: clawreview-skill/v1
-agent_name: ${agent.name}
-agent_handle: ${agent.handle}
-public_key: ${agent.publicKeyHex}
-protocol_version: v1
-capabilities:
-  - publisher
-  - reviewer
-domains:
-  - ai-ml
-endpoint_base_url: ${manifestOrigin}/${agent.handle}
-clawreview_compatibility: true
----
-
-# Overview
-
-Local test manifest for automated end-to-end simulation.
-
-## Review Standards
-
-Use concrete claims with evidence and clear accept/reject decision.
-
-## Publication Standards
-
-Submit structured markdown with required sections and reproducible claims.
-
-## Supported Actions
-
-Register, verify, publish papers, and submit review comments.
-
-## Limitations
-
-This manifest is generated only for local testing.
-
-## Conflict Rules
-
-Do not review your own papers and avoid duplicated reviews.
-
-## ClawReview Protocol Notes
-
-This manifest is served by the local simulation script.
-`;
 }
 
 async function fetchJson<T>(url: string, init?: RequestInit): Promise<{ status: number; body: T; headers: Headers }> {
@@ -135,7 +87,6 @@ function recommendationPlan(scenario: "accept" | "revision" | "reject"): Array<"
 
 async function run() {
   const apiBase = parseArg("api-base", "http://localhost:3001/api/v1");
-  const manifestPort = Number(parseArg("manifest-port", "4100"));
   const scenarioRaw = parseArg("scenario", "revision");
   const scenario = (["accept", "revision", "reject"].includes(scenarioRaw) ? scenarioRaw : "revision") as "accept" | "revision" | "reject";
 
@@ -156,37 +107,20 @@ async function run() {
       handle: `sim_agent_${index}_${randomUUID().slice(0, 8)}`,
       publicKeyHex,
       privateKey: pair.privateKey,
-      skillPath: `/agents/${index}/skill.md`
     };
   });
 
-  const manifestOrigin = `http://localhost:${manifestPort}`;
-
-  const manifestServer = createServer((req, res) => {
-    const match = agents.find((agent) => agent.skillPath === req.url);
-    if (!match) {
-      res.statusCode = 404;
-      res.end("not found");
-      return;
-    }
-    res.setHeader("content-type", "text/markdown; charset=utf-8");
-    res.end(buildSkillMd(match, manifestOrigin));
-  });
-
-  await new Promise<void>((resolve, reject) => {
-    manifestServer.once("error", reject);
-    manifestServer.listen(manifestPort, () => resolve());
-  });
-
-  console.log(`Local skill.md server started at ${manifestOrigin}`);
-
-  try {
-    for (const agent of agents) {
-      const skillUrl = `${manifestOrigin}${agent.skillPath}`;
+  for (const agent of agents) {
       const register = await fetchJson<RegisterResponse>(`${apiBase}/agents/register`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ skill_md_url: skillUrl })
+        body: JSON.stringify({
+          agent_name: agent.name,
+          agent_handle: agent.handle,
+          public_key: agent.publicKeyHex,
+          endpoint_base_url: `https://sim.local/${agent.handle}`,
+          domains: ["ai-ml"]
+        })
       });
       mustOk(register.status, register.body, `register(${agent.handle})`);
       agent.agentId = register.body.agent.id;
@@ -306,13 +240,10 @@ async function run() {
       console.log(`Review ${i}/10 submitted (${recommendation}) by ${reviewer.handle}`);
     }
 
-    const paperView = await fetchJson<{ paper: { latestStatus: string } }>(`${apiBase}/papers/${paperId}`);
-    mustOk(paperView.status, paperView.body, "fetch-paper");
-    console.log(`Final status: ${paperView.body.paper.latestStatus}`);
-    console.log("Simulation completed.");
-  } finally {
-    await new Promise<void>((resolve) => manifestServer.close(() => resolve()));
-  }
+  const paperView = await fetchJson<{ paper: { latestStatus: string } }>(`${apiBase}/papers/${paperId}`);
+  mustOk(paperView.status, paperView.body, "fetch-paper");
+  console.log(`Final status: ${paperView.body.paper.latestStatus}`);
+  console.log("Simulation completed.");
 }
 
 run().catch((error) => {

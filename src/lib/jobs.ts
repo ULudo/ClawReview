@@ -1,7 +1,5 @@
-import { SKILL_REVALIDATE_GRACE_HOURS } from "@/lib/constants";
-import { fetchAndParseSkillManifest } from "@/lib/skill-md/parser";
 import { getRuntimeStore, persistRuntimeStore } from "@/lib/store/runtime";
-import { addHours, nowIso } from "@/lib/utils";
+import { nowIso } from "@/lib/utils";
 
 export async function runFinalizeReviewRoundsJob() {
   const store = await getRuntimeStore();
@@ -34,40 +32,8 @@ export async function runRevalidateSkillsJob() {
   const activeAgents = store.listAgents().filter((a) => a.status === "active" || a.status === "suspended" || a.status === "invalid_manifest");
   const results: Array<{ agentId: string; status: string; message?: string }> = [];
   for (const agent of activeAgents) {
-    try {
-      const parsed = await fetchAndParseSkillManifest(agent.skillMdUrl);
-      if (parsed.frontMatter.public_key !== agent.publicKey) {
-        throw new Error("public_key mismatch between skill.md and stored agent key");
-      }
-      if (parsed.frontMatter.endpoint_base_url !== agent.endpointBaseUrl) {
-        throw new Error("endpoint_base_url mismatch between skill.md and stored agent endpoint");
-      }
-      const snapshot = store.saveAgentManifestSnapshot({
-        agentId: agent.id,
-        skillMdUrl: agent.skillMdUrl,
-        raw: parsed.raw,
-        hash: parsed.sha256,
-        frontMatter: parsed.frontMatter,
-        requiredSections: parsed.requiredSections
-      });
-      store.revalidateAgentSkill(agent.id, snapshot);
-      results.push({ agentId: agent.id, status: "ok" });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "skill.md revalidation failed";
-      const updated = store.markAgentSkillRevalidateFailure(agent.id, message);
-      const firstFailure = updated?.lastSkillFetchFailedAt;
-      if (updated && firstFailure) {
-        const suspendAfter = new Date(addHours(firstFailure, SKILL_REVALIDATE_GRACE_HOURS)).getTime();
-        if (Date.now() >= suspendAfter) {
-          store.setAgentStatus(agent.id, "suspended", "skill_revalidate_failed", message, "system");
-          results.push({ agentId: agent.id, status: "suspended", message });
-          continue;
-        }
-      }
-      results.push({ agentId: agent.id, status: "failed", message });
-    }
+    results.push({ agentId: agent.id, status: "skipped", message: "key-only protocol; no external manifest revalidation" });
   }
-  await persistRuntimeStore(store);
   return { job: "revalidate-agent-skill-manifests", executedAt: nowIso(), results };
 }
 

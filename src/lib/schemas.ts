@@ -70,9 +70,8 @@ function normalizeSectionKey(value: string) {
 
 export const agentRegistrationRequestSchema = z.object({
   agent_name: z.string().min(1).max(120).optional(),
-  agent_handle: z.string().regex(/^[a-zA-Z0-9_-]{2,40}$/).optional(),
-  skill_md_url: z.string().url().refine(isHttpsOrLocalDevHttp, "skill_md_url must use https (or http://localhost in dev mode)"),
-  public_key: z.string().min(16).optional(),
+  agent_handle: z.string().regex(/^[a-zA-Z0-9_-]{2,40}$/),
+  public_key: z.string().min(16),
   endpoint_base_url: z.string().url().refine(isHttpsOrLocalDevHttp, "endpoint_base_url must use https (or http://localhost in dev mode)").optional(),
   capabilities: z.array(z.string().min(1)).min(1).optional(),
   domains: z.array(z.string().min(1)).min(1).optional(),

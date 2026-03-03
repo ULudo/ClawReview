@@ -25,7 +25,6 @@ import {
 } from "@/lib/constants";
 import { ERROR_CODES } from "@/lib/error-codes";
 import { sendVerificationEmail } from "@/lib/email/send-verification-email";
-import { fetchAndParseSkillManifest, SkillManifestError } from "@/lib/skill-md/parser";
 import {
   agentClaimRequestSchema,
   agentRegistrationRequestSchema,
@@ -54,6 +53,10 @@ function parseJsonBody<T>(bodyText: string): T {
   return JSON.parse(bodyText) as T;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
 function parseRouteSegments(req: NextRequest): string[] {
   return req.nextUrl.pathname.replace(/^\/api\/v1\//, "").split("/").filter(Boolean);
 }
@@ -75,16 +78,12 @@ function isAllowedDevHttpUrl(value: string) {
   }
 }
 
-function validateAgentUrlRequirements(payload: { skill_md_url: string; endpoint_base_url?: string }) {
+function validateAgentUrlRequirements(payload: { endpoint_base_url?: string }) {
   const allowDevHttp = shouldAllowUnsignedDev();
-  const skillOk = payload.skill_md_url.startsWith("https://") || (allowDevHttp && isAllowedDevHttpUrl(payload.skill_md_url));
   const endpointOk =
     payload.endpoint_base_url == null
       ? true
       : payload.endpoint_base_url.startsWith("https://") || (allowDevHttp && isAllowedDevHttpUrl(payload.endpoint_base_url));
-  if (!skillOk) {
-    return { ok: false as const, response: badRequest("skill_md_url must use https (or http://localhost in dev mode)") };
-  }
   if (!endpointOk) {
     return { ok: false as const, response: badRequest("endpoint_base_url must use https (or http://localhost in dev mode)") };
   }
@@ -983,7 +982,21 @@ export async function POST(req: NextRequest) {
       );
       if (registrationRateLimit) return registrationRateLimit;
 
-      const parsedBody = agentRegistrationRequestSchema.safeParse(parseJsonBody<unknown>(bodyText || "{}"));
+      const rawPayload = parseJsonBody<unknown>(bodyText || "{}");
+      if (isRecord(rawPayload) && Object.prototype.hasOwnProperty.call(rawPayload, "skill_md_url")) {
+        return unprocessableEntity("skill_md_url is not supported. Register with agent_handle + public_key.", {
+          errorCode: ERROR_CODES.unprocessableEntity,
+          hint: "Use the platform skill.md as protocol instructions. Do not submit an agent-hosted skill_md_url.",
+          fieldErrors: [
+            {
+              field: "skill_md_url",
+              rule: "unsupported_field",
+              expected: "Remove skill_md_url from request payload."
+            }
+          ]
+        });
+      }
+      const parsedBody = agentRegistrationRequestSchema.safeParse(rawPayload);
       if (!parsedBody.success) {
         return unprocessableEntity("Invalid registration payload", {
           errorCode: ERROR_CODES.unprocessableEntity,
@@ -992,38 +1005,20 @@ export async function POST(req: NextRequest) {
       }
 
       const payload = parsedBody.data;
-      const urlCheck = validateAgentUrlRequirements(payload);
+      const urlCheck = validateAgentUrlRequirements({ endpoint_base_url: payload.endpoint_base_url });
       if (!urlCheck.ok) return urlCheck.response;
-      const manifest = await fetchAndParseSkillManifest(payload.skill_md_url);
-      const frontMatter = manifest.frontMatter;
+
+      const knownDomainDefaults = store.listDomains().map((d) => d.id);
+      const fallbackDomain = knownDomainDefaults[0] ?? "ai-ml";
       const effective = {
-        agent_name: payload.agent_name ?? frontMatter.agent_name,
-        agent_handle: payload.agent_handle ?? frontMatter.agent_handle,
-        public_key: payload.public_key ?? frontMatter.public_key,
-        endpoint_base_url: payload.endpoint_base_url ?? frontMatter.endpoint_base_url,
-        capabilities: payload.capabilities ?? frontMatter.capabilities,
-        domains: payload.domains ?? frontMatter.domains,
-        protocol_version: payload.protocol_version ?? frontMatter.protocol_version
+        agent_name: payload.agent_name ?? payload.agent_handle,
+        agent_handle: payload.agent_handle,
+        public_key: payload.public_key,
+        endpoint_base_url: payload.endpoint_base_url ?? "https://agent.local",
+        capabilities: payload.capabilities ?? ["publisher", "reviewer"],
+        domains: payload.domains ?? [fallbackDomain],
+        protocol_version: payload.protocol_version ?? "v1"
       } as const;
-
-      if (payload.agent_handle && frontMatter.agent_handle !== payload.agent_handle) {
-        return unprocessableEntity("agent_handle mismatch between payload and skill.md", { errorCode: ERROR_CODES.unprocessableEntity });
-      }
-      if (payload.agent_name && frontMatter.agent_name !== payload.agent_name) {
-        return unprocessableEntity("agent_name mismatch between payload and skill.md", { errorCode: ERROR_CODES.unprocessableEntity });
-      }
-      if (payload.public_key && frontMatter.public_key !== payload.public_key) {
-        return unprocessableEntity("public_key mismatch between payload and skill.md", { errorCode: ERROR_CODES.unprocessableEntity });
-      }
-      if (payload.endpoint_base_url && frontMatter.endpoint_base_url !== payload.endpoint_base_url) {
-        return unprocessableEntity("endpoint_base_url mismatch between payload and skill.md", { errorCode: ERROR_CODES.unprocessableEntity });
-      }
-      if (payload.protocol_version && frontMatter.protocol_version !== payload.protocol_version) {
-        return unprocessableEntity("protocol_version mismatch between payload and skill.md", { errorCode: ERROR_CODES.unprocessableEntity });
-      }
-
-      const effectiveUrlCheck = validateAgentUrlRequirements({ skill_md_url: payload.skill_md_url, endpoint_base_url: effective.endpoint_base_url });
-      if (!effectiveUrlCheck.ok) return effectiveUrlCheck.response;
 
       const domainValidation = validateKnownDomainsWithStore(store, effective.domains);
       if (!domainValidation.valid) {
@@ -1032,13 +1027,16 @@ export async function POST(req: NextRequest) {
         });
       }
 
-      const verifiedOriginDomain = parseHostname(payload.skill_md_url);
+      const skillMdUrl = `key://${effective.agent_handle.toLowerCase()}`;
+      const verifiedOriginDomain = payload.endpoint_base_url
+        ? parseHostname(payload.endpoint_base_url)
+        : effective.agent_handle.toLowerCase();
       const registered = store.createOrReplacePendingAgent({
         name: effective.agent_name,
         handle: effective.agent_handle,
         publicKey: effective.public_key,
         endpointBaseUrl: effective.endpoint_base_url,
-        skillMdUrl: payload.skill_md_url,
+        skillMdUrl,
         verifiedOriginDomain,
         capabilities: effective.capabilities,
         domains: effective.domains,
@@ -1057,13 +1055,37 @@ export async function POST(req: NextRequest) {
       }
       const { agent } = registered;
 
-      const snapshot = store.saveAgentManifestSnapshot({
+      const manifestSnapshotInput = {
         agentId: agent.id,
-        skillMdUrl: payload.skill_md_url,
-        raw: manifest.raw,
-        hash: manifest.sha256,
-        frontMatter,
-        requiredSections: manifest.requiredSections
+        skillMdUrl,
+        raw: `# Key Registration Manifest\nmode: key_only\nagent_handle: ${effective.agent_handle}\n`,
+        hash: sha256Hex(JSON.stringify({
+          mode: "key_only",
+          agent_handle: effective.agent_handle,
+          public_key: effective.public_key,
+          endpoint_base_url: effective.endpoint_base_url,
+          domains: effective.domains
+        })),
+        frontMatter: {
+          schema: "clawreview-skill/v1" as const,
+          agent_name: effective.agent_name,
+          agent_handle: effective.agent_handle,
+          public_key: effective.public_key,
+          protocol_version: "v1" as const,
+          capabilities: effective.capabilities,
+          domains: effective.domains,
+          endpoint_base_url: effective.endpoint_base_url,
+          clawreview_compatibility: true as const
+        },
+        requiredSections: {}
+      };
+      const snapshot = store.saveAgentManifestSnapshot({
+        agentId: manifestSnapshotInput.agentId,
+        skillMdUrl: manifestSnapshotInput.skillMdUrl,
+        raw: manifestSnapshotInput.raw,
+        hash: manifestSnapshotInput.hash,
+        frontMatter: manifestSnapshotInput.frontMatter,
+        requiredSections: manifestSnapshotInput.requiredSections
       });
 
       const challenge = store.createAgentVerificationChallenge(agent.id);
@@ -1270,25 +1292,11 @@ export async function POST(req: NextRequest) {
 
       const replay = await maybeReplayIdempotency(req, agent.id);
       if (replay) return replay;
-
-      const manifest = await fetchAndParseSkillManifest(agent.skillMdUrl);
-      if (manifest.frontMatter.public_key !== agent.publicKey) {
-        return badRequest("public_key mismatch between skill.md and agent record", undefined, { errorCode: ERROR_CODES.badRequest });
-      }
-      if (manifest.frontMatter.endpoint_base_url !== agent.endpointBaseUrl) {
-        return badRequest("endpoint_base_url mismatch between skill.md and agent record", undefined, { errorCode: ERROR_CODES.badRequest });
-      }
-
-      const snapshot = store.saveAgentManifestSnapshot({
-        agentId: agent.id,
-        skillMdUrl: agent.skillMdUrl,
-        raw: manifest.raw,
-        hash: manifest.sha256,
-        frontMatter: manifest.frontMatter,
-        requiredSections: manifest.requiredSections
+      return await respondIdempotent(req, agent.id, 200, {
+        agent,
+        reverified: false,
+        message: "Key-only protocol active. No external manifest revalidation."
       });
-      const updated = store.revalidateAgentSkill(agent.id, snapshot);
-      return await respondIdempotent(req, agent.id, 200, { agent: updated, manifestHash: snapshot.hash });
     }
 
     if (segments.length === 1 && segments[0] === "papers") {
@@ -1708,9 +1716,6 @@ export async function POST(req: NextRequest) {
 
     return notFound("Route not found");
   } catch (error) {
-    if (error instanceof SkillManifestError) {
-      return unprocessableEntity(error.message, { errorCode: ERROR_CODES.unprocessableEntity });
-    }
     if (error instanceof SyntaxError) {
       return badRequest("Invalid JSON body", undefined, { errorCode: ERROR_CODES.badRequest });
     }

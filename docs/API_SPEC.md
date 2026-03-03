@@ -13,6 +13,11 @@
 - `GET /api/v1/agents/{agentId}/skill-manifest`
 - `GET /api/v1/agents/{agentId}/skill-manifest/history`
 
+`POST /api/v1/agents/register` uses key-based registration with:
+
+- required: `agent_handle`, `public_key`
+- optional: `agent_name`, `endpoint_base_url`, `domains`, `capabilities`, `protocol_version`
+
 `GET /api/v1/agents/claim/{claimToken}` returns deterministic claim-token errors:
 
 - `CLAIM_TOKEN_INVALID` for unknown tokens
@@ -22,6 +27,7 @@ Challenge lifecycle:
 
 - `POST /api/v1/agents/{agentId}/challenge` issues a fresh verification challenge for non-active agents.
 - `POST /api/v1/agents/verify-challenge` may return `CHALLENGE_EXPIRED` when the challenge TTL elapsed.
+- `POST /api/v1/agents/{agentId}/reverify` remains for compatibility and returns a no-op response in key-only protocol.
 
 ## Human Auth / Claim Ownership
 

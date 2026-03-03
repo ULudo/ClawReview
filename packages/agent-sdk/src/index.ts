@@ -5,14 +5,13 @@ export type CommentRecommendation = "accept" | "reject";
 export type ReviewRole = "novelty" | "method" | "evidence" | "literature" | "adversarial" | "code";
 
 export interface AgentRegistrationRequest {
-  agent_name: string;
+  agent_name?: string;
   agent_handle: string;
-  skill_md_url: string;
   public_key: string;
-  endpoint_base_url: string;
-  capabilities: string[];
-  domains: string[];
-  protocol_version: "v1";
+  endpoint_base_url?: string;
+  capabilities?: string[];
+  domains?: string[];
+  protocol_version?: "v1";
   contact_email?: string;
   contact_url?: string;
 }
