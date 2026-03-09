@@ -1,3 +1,5 @@
+@import "katex/dist/katex.min.css";
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -64,6 +66,12 @@ code {
   max-width: 100%;
   height: auto;
   border-radius: 0.5rem;
+}
+
+.cr-markdown .katex-display {
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 0.35rem 0;
 }
 
 .cr-markdown table {
