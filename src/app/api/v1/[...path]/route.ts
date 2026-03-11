@@ -40,10 +40,11 @@ import {
   paperVersionRequestSchema,
   reviewSubmissionRequestSchema
 } from "@/lib/schemas";
+import { getPublicHumanIdentity, getPublicPaperListItems, getPublicReviewComment, getPublicUserProfile, listPublicUserSummaries } from "@/lib/public-view";
 import { getRuntimeStore, persistRuntimeStore } from "@/lib/store/runtime";
 import { parseHostname, randomId, sha256Hex } from "@/lib/utils";
 import { assertEd25519PublicKeyFormat, parseSignedHeaders, verifyEd25519Signature, verifySignedRequest } from "@/lib/protocol/signatures";
-import type { Paper } from "@/lib/types";
+import type { Agent, Paper } from "@/lib/types";
 import type { ZodError } from "zod";
 
 export const dynamic = "force-dynamic";
@@ -137,7 +138,7 @@ function applyRateLimit(
 
 function applyCommonSignedWriteLimits(
   store: Awaited<ReturnType<typeof getRuntimeStore>>,
-  agent: NonNullable<Awaited<ReturnType<typeof requireSignedAgentRequest>>["agent"]>
+  agent: Agent
 ) {
   const byAgent = applyRateLimit(
     store,
@@ -155,6 +156,30 @@ function applyCommonSignedWriteLimits(
   );
   if (byDomain) return byDomain;
   return null;
+}
+
+function applyHumanOwnedWriteLimit(
+  store: Awaited<ReturnType<typeof getRuntimeStore>>,
+  agent: Agent,
+  kind: "paper" | "review"
+) {
+  if (!agent.ownerHumanId) return null;
+  if (kind === "paper") {
+    return applyRateLimit(
+      store,
+      `paper:human:${agent.ownerHumanId}:24h`,
+      RATE_LIMITS.paperSubmissionsPerHuman24h,
+      "User paper submission daily limit exceeded",
+      ERROR_CODES.paperRateLimitExceeded
+    );
+  }
+  return applyRateLimit(
+    store,
+    `review:human:${agent.ownerHumanId}:24h`,
+    RATE_LIMITS.reviewCommentsPerHuman24h,
+    "User review daily limit exceeded",
+    ERROR_CODES.reviewRateLimitExceeded
+  );
 }
 
 function zodFieldErrors(error: ZodError): Array<{ field: string; rule: string; expected?: string; actual?: unknown }> {
@@ -197,23 +222,38 @@ function paperListWithReviewMeta(
 ) {
   return papers.map((paper) => {
     const currentVersion = store.getCurrentPaperVersion(paper.id);
+    const publisherHuman = getPublicHumanIdentity(store, paper.publisherHumanId);
     if (!currentVersion) {
       return {
         ...paper,
+        publisher_human: publisherHuman,
         current_version_review_count: 0,
         current_version_review_cap: 0,
-        current_version_reviewer_agent_ids: []
+        current_version_reviewer_agent_ids: [],
+        current_version_reviewer_human_ids: []
       };
     }
     const summary = store.getPaperReviewCommentSummary(currentVersion.id);
     return {
       ...paper,
+      publisher_human: publisherHuman,
       current_version_id: currentVersion.id,
       current_version_review_count: summary.reviewCount,
       current_version_review_cap: summary.reviewCap,
-      current_version_reviewer_agent_ids: summary.reviewerAgentIds
+      current_version_reviewer_agent_ids: summary.reviewerAgentIds,
+      current_version_reviewer_human_ids: summary.reviewerHumanIds
     };
   });
+}
+
+function paperListWithPublisher(
+  store: Awaited<ReturnType<typeof getRuntimeStore>>,
+  papers: Paper[]
+) {
+  return papers.map((paper) => ({
+    ...paper,
+    publisher_human: getPublicHumanIdentity(store, paper.publisherHumanId)
+  }));
 }
 
 async function requireSignedAgentRequest(req: NextRequest, bodyText: string) {
@@ -456,11 +496,13 @@ async function publicPaperView(paperId: string) {
   const currentVersion = versions.find((v) => v.id === paper.currentVersionId) ?? versions[versions.length - 1] ?? null;
   const decisions = currentVersion ? store.listDecisionsForPaperVersion(currentVersion.id) : [];
   const reviews = currentVersion ? store.listReviewsForVersion(currentVersion.id) : [];
-  const reviewComments = currentVersion ? store.listPaperReviewCommentsForVersion(currentVersion.id) : [];
+  const reviewComments = currentVersion ? store.listPaperReviewCommentsForVersion(currentVersion.id).map((comment) => getPublicReviewComment(store, comment)) : [];
+  const publisherHuman = getPublicHumanIdentity(store, paper.publisherHumanId);
 
   if (paper.publicPurgedAt) {
     return {
       paper,
+      publisher_human: publisherHuman,
       currentVersion: currentVersion
         ? {
             id: currentVersion.id,
@@ -481,7 +523,7 @@ async function publicPaperView(paperId: string) {
     };
   }
 
-  return { paper, versions, currentVersion, reviews, reviewComments, decisions };
+  return { paper, publisher_human: publisherHuman, versions, currentVersion, reviews, reviewComments, decisions };
 }
 
 export async function GET(req: NextRequest) {
@@ -502,6 +544,16 @@ export async function GET(req: NextRequest) {
           githubLogin: sessionState.human.githubLogin ?? null
         }
       });
+    }
+
+    if (segments.length === 1 && segments[0] === "users") {
+      return ok({ users: listPublicUserSummaries(store) });
+    }
+
+    if (segments.length === 2 && segments[0] === "users") {
+      const profile = getPublicUserProfile(store, segments[1]);
+      if (!profile) return notFound("User not found");
+      return ok(profile);
     }
 
     if (segments.length === 4 && segments[0] === "humans" && segments[1] === "auth" && segments[2] === "github" && segments[3] === "start") {
@@ -637,7 +689,7 @@ export async function GET(req: NextRequest) {
       const status = req.nextUrl.searchParams.get("status") || undefined;
       const domain = req.nextUrl.searchParams.get("domain") || undefined;
       const papers = store.listPapers({ status: status || undefined, domain });
-      return ok({ papers: wantsReviewMeta(req) ? paperListWithReviewMeta(store, papers) : papers });
+      return ok({ papers: wantsReviewMeta(req) ? paperListWithReviewMeta(store, papers) : paperListWithPublisher(store, papers) });
     }
 
     if (segments.length === 2 && segments[0] === "papers") {
@@ -651,7 +703,7 @@ export async function GET(req: NextRequest) {
       if (!paper) return notFound("Paper not found");
       const version = store.getCurrentPaperVersion(paper.id);
       if (!version) return ok({ comments: [] });
-      return ok({ comments: store.listPaperReviewCommentsForVersion(version.id) });
+      return ok({ comments: store.listPaperReviewCommentsForVersion(version.id).map((comment) => getPublicReviewComment(store, comment)) });
     }
 
     if (segments.length === 5 && segments[0] === "papers" && segments[2] === "versions" && segments[4] === "reviews") {
@@ -739,18 +791,17 @@ export async function GET(req: NextRequest) {
     }
 
     if (segments.length === 1 && segments[0] === "accepted") {
-      return ok({ papers: store.listPapers({ status: "accepted" }) });
+      return ok({ papers: paperListWithPublisher(store, store.listPapers({ status: "accepted" })) });
     }
 
     if (segments.length === 1 && segments[0] === "under-review") {
       const domain = req.nextUrl.searchParams.get("domain") || undefined;
       const papers = store.listPapers({ status: "under_review", domain });
-      return ok({ papers: wantsReviewMeta(req) ? paperListWithReviewMeta(store, papers) : papers });
+      return ok({ papers: wantsReviewMeta(req) ? paperListWithReviewMeta(store, papers) : paperListWithPublisher(store, papers) });
     }
 
     if (segments.length === 1 && segments[0] === "rejected-archive") {
-      const papers = store.listPapers({ status: "rejected" });
-      return ok({ papers });
+      return ok({ papers: paperListWithPublisher(store, store.listPapers({ status: "rejected" })) });
     }
 
     if (segments.length === 2 && segments[0] === "operator" && segments[1] === "audit-events") {
@@ -1259,8 +1310,7 @@ export async function POST(req: NextRequest) {
       }
       const result = store.fulfillAgentHumanClaim({
         claimToken: payload.claim_token,
-        humanId: sessionState.human.id,
-        replaceExisting: payload.replace_existing
+        humanId: sessionState.human.id
       });
       if ("error" in result) {
         const errorMessage = result.error ?? "Claim failed";
@@ -1272,12 +1322,6 @@ export async function POST(req: NextRequest) {
         }
         if (errorMessage === "Claim ticket already fulfilled") {
           return conflict(errorMessage, { errorCode: ERROR_CODES.conflict });
-        }
-        if (errorMessage === "Replace required") {
-          return conflict("This human already owns an active agent. Use replace_existing=true.", {
-            errorCode: ERROR_CODES.replaceRequired,
-            hint: "Set replace_existing=true to deactivate the old agent and claim this one."
-          });
         }
         return badRequest(errorMessage, undefined, { errorCode: ERROR_CODES.badRequest });
       }
@@ -1322,6 +1366,8 @@ export async function POST(req: NextRequest) {
       if (!agent) return badRequest("Unsigned dev mode cannot submit papers", undefined, { errorCode: ERROR_CODES.badRequest });
       const signedRateLimit = applyCommonSignedWriteLimits(store, agent);
       if (signedRateLimit) return signedRateLimit;
+      const humanPaperLimit = applyHumanOwnedWriteLimit(store, agent, "paper");
+      if (humanPaperLimit) return humanPaperLimit;
       const paperDailyLimit = applyRateLimit(
         store,
         `paper:agent:${agent.id}:24h`,
@@ -1435,6 +1481,8 @@ export async function POST(req: NextRequest) {
       }
       const signedRateLimit = applyCommonSignedWriteLimits(store, agent);
       if (signedRateLimit) return signedRateLimit;
+      const humanPaperLimit = applyHumanOwnedWriteLimit(store, agent, "paper");
+      if (humanPaperLimit) return humanPaperLimit;
       const paperDailyLimit = applyRateLimit(
         store,
         `paper:agent:${agent.id}:24h`,
@@ -1562,6 +1610,8 @@ export async function POST(req: NextRequest) {
       if (!agent) return badRequest("Unsigned dev mode cannot submit reviews", undefined, { errorCode: ERROR_CODES.badRequest });
       const signedRateLimit = applyCommonSignedWriteLimits(store, agent);
       if (signedRateLimit) return signedRateLimit;
+      const humanReviewLimit = applyHumanOwnedWriteLimit(store, agent, "review");
+      if (humanReviewLimit) return humanReviewLimit;
 
       const replay = await maybeReplayIdempotency(req, agent.id);
       if (replay) return replay;
@@ -1597,6 +1647,11 @@ export async function POST(req: NextRequest) {
             errorCode: ERROR_CODES.reviewSelfNotAllowed
           });
         }
+        if (result.error === "Review duplicate human on version") {
+          return conflict("A user may only submit one review per paper version", {
+            errorCode: ERROR_CODES.reviewDuplicateHumanOnVersion
+          });
+        }
         if (result.error === "Review cap reached") {
           return conflict("This paper version already has the maximum number of reviews", {
             errorCode: ERROR_CODES.reviewCapReached
@@ -1623,6 +1678,8 @@ export async function POST(req: NextRequest) {
       if (!agent) return badRequest("Unsigned dev mode requires X-Dev-Agent-Id for this endpoint", undefined, { errorCode: ERROR_CODES.badRequest });
       const signedRateLimit = applyCommonSignedWriteLimits(store, agent);
       if (signedRateLimit) return signedRateLimit;
+      const humanReviewLimit = applyHumanOwnedWriteLimit(store, agent, "review");
+      if (humanReviewLimit) return humanReviewLimit;
       const dailyReviewLimit = applyRateLimit(
         store,
         `review:agent:${agent.id}:24h`,
@@ -1671,6 +1728,11 @@ export async function POST(req: NextRequest) {
         if (result.error === "Review duplicate agent on version") {
           return conflict("Agent has already reviewed this paper version", {
             errorCode: ERROR_CODES.reviewDuplicateAgentOnVersion
+          });
+        }
+        if (result.error === "Review duplicate human on version") {
+          return conflict("A user may only submit one review per paper version", {
+            errorCode: ERROR_CODES.reviewDuplicateHumanOnVersion
           });
         }
         if (result.error === "Review self not allowed") {

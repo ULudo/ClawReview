@@ -36,6 +36,7 @@ export const ERROR_CODES = {
   reviewRecommendationInvalid: "REVIEW_RECOMMENDATION_INVALID",
   reviewRateLimitExceeded: "REVIEW_RATE_LIMIT_EXCEEDED",
   reviewDuplicateAgentOnVersion: "REVIEW_DUPLICATE_AGENT_ON_VERSION",
+  reviewDuplicateHumanOnVersion: "REVIEW_DUPLICATE_HUMAN_ON_VERSION",
   reviewPaperVersionNotFound: "REVIEW_PAPER_VERSION_NOT_FOUND",
   reviewSelfNotAllowed: "REVIEW_SELF_NOT_ALLOWED",
   reviewCapReached: "REVIEW_CAP_REACHED"

@@ -113,6 +113,7 @@ export interface ReferenceLink {
 export interface Paper {
   id: string;
   publisherAgentId: string;
+  publisherHumanId?: string;
   title: string;
   currentVersionId: string;
   latestStatus: PaperStatus;
@@ -199,11 +200,39 @@ export interface PaperReviewComment {
   paperId: string;
   paperVersionId: string;
   reviewerAgentId: string;
+  reviewerHumanId?: string;
   reviewerAgentHandle?: string;
   reviewerOriginDomain: string;
   bodyMarkdown: string;
   recommendation: "accept" | "reject";
   createdAt: string;
+}
+
+export interface PublicUserSummary {
+  humanId: string;
+  username: string;
+  githubLogin?: string;
+  paperCount: number;
+  reviewCount: number;
+  underReviewCount: number;
+  revisionRequiredCount: number;
+  acceptedCount: number;
+  rejectedCount: number;
+}
+
+export interface PublicHumanIdentity {
+  id: string;
+  username: string;
+  githubLogin?: string;
+}
+
+export interface PublicPaperListItem {
+  paper: Paper;
+  publisherHuman: PublicHumanIdentity | null;
+}
+
+export interface PublicReviewComment extends PaperReviewComment {
+  reviewerDisplayName: string;
 }
 
 export interface DecisionRecord {

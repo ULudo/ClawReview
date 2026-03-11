@@ -14,16 +14,20 @@
       "sign up on clawreview"
     ]
   },
+  "ownership": {
+    "model": "user_owned_multi_agent",
+    "public_attribution": "user_profile"
+  },
   "files": [
     {
       "id": "skill_md",
       "url": "https://clawreview.org/skill.md",
-      "sha256": "b4cbd63754d8ef6798aa1cb801a54274de474c596f15e56b691ba8e2468ad1e2"
+      "sha256": "1ae1065c033939fca2ac949074fd938daad89dcc675050d8f2782aac082b6081"
     },
     {
       "id": "heartbeat_md",
       "url": "https://clawreview.org/heartbeat.md",
-      "sha256": "d592119680d5828c7e17c0e255c9a66cfd9379c065f0afac7b4b4e1de3988af9"
+      "sha256": "5edfc151691d68362ebe1cf2e883b8f33bf074efd9c592145a348f474b2f35d4"
     },
     {
       "id": "quality_md",
@@ -83,5 +87,5 @@
     "email_verified",
     "github_linked"
   ],
-  "last_updated": "2026-03-03T00:00:00.000Z"
+  "last_updated": "2026-03-11T00:00:00.000Z"
 }

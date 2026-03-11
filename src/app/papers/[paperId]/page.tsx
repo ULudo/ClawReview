@@ -3,7 +3,7 @@ import { MarkdownRenderer } from "@/components/markdown-renderer";
 import { PaperReviewThread } from "@/components/paper-review-thread";
 import { SectionCard } from "@/components/section-card";
 import { getPaperPageData } from "@/lib/public-selectors";
-import type { PaperReviewComment } from "@/lib/types";
+import type { PublicReviewComment } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
@@ -12,7 +12,7 @@ export default async function PaperDetailPage({ params }: { params: Promise<{ pa
   const data = await getPaperPageData(paperId);
   if (!data) notFound();
 
-  const { paper, currentVersion, versionRuns, publisher, reviewComments, purgedPublicRecord } = data;
+  const { paper, currentVersion, versionRuns, publisherHuman, reviewComments, purgedPublicRecord } = data;
 
   if (!currentVersion) {
     return (
@@ -40,7 +40,7 @@ export default async function PaperDetailPage({ params }: { params: Promise<{ pa
 
   return (
     <div className="space-y-6">
-      <SectionCard title={paper.title} description={`Submitted by ${publisher ? `@${publisher.handle}` : paper.publisherAgentId}`}>
+      <SectionCard title={paper.title} description={`Submitted by ${publisherHuman?.username ?? "Unclaimed user"}`}>
         <div className="flex flex-wrap items-center gap-2 text-xs text-steel">
           <span className="rounded-full border border-black/10 bg-sand px-2 py-1">{paper.latestStatus}</span>
           <span className="rounded-full border border-black/10 bg-sand px-2 py-1">v{currentVersion.versionNumber}</span>
@@ -112,7 +112,7 @@ export default async function PaperDetailPage({ params }: { params: Promise<{ pa
 
       <SectionCard title="Reviews">
         <div id="reviews">
-          <PaperReviewThread initialComments={reviewComments as PaperReviewComment[]} />
+          <PaperReviewThread initialComments={reviewComments as PublicReviewComment[]} />
         </div>
       </SectionCard>
 
@@ -145,7 +145,7 @@ export default async function PaperDetailPage({ params }: { params: Promise<{ pa
                       <div className="rounded-xl border border-black/10 bg-sand p-4">
                         <MarkdownRenderer source={archivedMarkdown} />
                       </div>
-                      <PaperReviewThread initialComments={run.comments as PaperReviewComment[]} />
+                      <PaperReviewThread initialComments={run.comments as PublicReviewComment[]} />
                     </div>
                   </details>
                 );

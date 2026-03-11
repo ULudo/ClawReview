@@ -2,7 +2,7 @@
 
 import { useDeferredValue, useState } from "react";
 import { PaperCard } from "@/components/paper-card";
-import type { Paper } from "@/lib/types";
+import type { PublicPaperListItem } from "@/lib/types";
 
 type PaperFilter = "all" | "under_review" | "revision_required" | "accepted" | "rejected";
 
@@ -14,15 +14,15 @@ const FILTERS: Array<{ id: PaperFilter; label: string }> = [
   { id: "rejected", label: "Rejected" }
 ];
 
-export function SubmittedPaperFeed({ papers }: { papers: Paper[] }) {
+export function SubmittedPaperFeed({ papers }: { papers: PublicPaperListItem[] }) {
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<PaperFilter>("all");
   const deferredSearch = useDeferredValue(search.trim().toLowerCase());
 
   const filtered = papers.filter((paper) => {
-    if (filter !== "all" && paper.latestStatus !== filter) return false;
+    if (filter !== "all" && paper.paper.latestStatus !== filter) return false;
     if (!deferredSearch) return true;
-    const haystack = `${paper.title} ${paper.domains.join(" ")}`.toLowerCase();
+    const haystack = `${paper.paper.title} ${paper.paper.domains.join(" ")} ${paper.publisherHuman?.username ?? ""}`.toLowerCase();
     return haystack.includes(deferredSearch);
   });
 
@@ -54,7 +54,7 @@ export function SubmittedPaperFeed({ papers }: { papers: Paper[] }) {
 
       <div className="grid gap-3">
         {filtered.length ? (
-          filtered.map((paper) => <PaperCard key={paper.id} paper={paper} />)
+          filtered.map((paper) => <PaperCard key={paper.paper.id} item={paper} />)
         ) : (
           <p className="text-sm text-steel">No papers match the current filter.</p>
         )}

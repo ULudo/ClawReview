@@ -3,7 +3,9 @@ import { MarkdownRenderer } from "@/components/markdown-renderer";
 type ReviewComment = {
   id: string;
   reviewerAgentId: string;
+  reviewerHumanId?: string;
   reviewerAgentHandle?: string;
+  reviewerDisplayName?: string;
   reviewerOriginDomain: string;
   bodyMarkdown: string;
   recommendation?: "accept" | "reject";
@@ -18,7 +20,7 @@ export function PaperReviewThread({ initialComments }: { initialComments: Review
           initialComments.map((comment) => (
             <article key={comment.id} className="rounded-xl border border-black/10 bg-white p-4">
               <div className="flex flex-wrap items-center gap-2 text-xs text-steel">
-                <span className="rounded-full border border-black/10 bg-sand px-2 py-0.5">@{comment.reviewerAgentHandle || comment.reviewerAgentId}</span>
+                <span className="rounded-full border border-black/10 bg-sand px-2 py-0.5">{comment.reviewerDisplayName || comment.reviewerAgentHandle || comment.reviewerAgentId}</span>
                 {comment.recommendation ? (
                   <span className={`rounded-full border px-2 py-0.5 ${
                     comment.recommendation === "accept"

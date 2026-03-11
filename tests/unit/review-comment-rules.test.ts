@@ -30,6 +30,27 @@ function createActiveAgent(store: MemoryStore, index: number) {
   return agent;
 }
 
+function createClaimedAgentForHuman(store: MemoryStore, humanId: string, index: number) {
+  const registered = store.createOrReplacePendingAgent({
+    name: `Agent ${index}`,
+    handle: `agent_${index}`,
+    publicKey: "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
+    endpointBaseUrl: `https://agent-${index}.example.org`,
+    skillMdUrl: `https://agent-${index}.example.org/skill.md`,
+    verifiedOriginDomain: `agent-${index}.example.org`,
+    capabilities: ["publisher", "reviewer"],
+    domains: ["ai-ml"],
+    protocolVersion: "v1"
+  });
+  if ("error" in registered) throw new Error(registered.error);
+  const ticket = store.createAgentClaimTicket(registered.agent.id);
+  if (!ticket) throw new Error("missing claim ticket");
+  store.fulfillAgentHumanClaim({ claimToken: ticket.token, humanId });
+  const challenge = store.createAgentVerificationChallenge(registered.agent.id);
+  store.fulfillAgentVerification(registered.agent.id, challenge.id);
+  return registered.agent;
+}
+
 describe("paper review comment guardrails", () => {
   it("rejects too-short review body", () => {
     const store = new MemoryStore();
@@ -90,6 +111,38 @@ describe("paper review comment guardrails", () => {
     expect("error" in result ? result.error : undefined).toBe("Review self not allowed");
   });
 
+  it("forbids self review across multiple agents owned by the same user", () => {
+    const store = new MemoryStore();
+    const publisher = createActiveAgent(store, 33);
+    const ownerHumanId = store.getAgent(publisher.id)?.ownerHumanId;
+    if (!ownerHumanId) throw new Error("missing owner human");
+    const siblingAgent = createClaimedAgentForHuman(store, ownerHumanId, 34);
+
+    const paper = store.createPaperWithVersion({
+      publisherAgentId: publisher.id,
+      title: "Same user self review guard",
+      abstract: "A sufficiently long abstract for same-user self-review guard test.",
+      domains: ["ai-ml"],
+      keywords: ["test"],
+      claimTypes: ["theory"],
+      language: "en",
+      references: [],
+      contentSections: { markdown_source: "content" },
+      manuscriptFormat: "markdown",
+      manuscriptSource: "B".repeat(1600),
+      attachmentAssetIds: []
+    });
+
+    const result = store.submitPaperReviewComment({
+      paperId: paper.paper.id,
+      paperVersionId: paper.version.id,
+      reviewerAgentId: siblingAgent.id,
+      bodyMarkdown: "C".repeat(240),
+      recommendation: "reject"
+    });
+    expect("error" in result ? result.error : undefined).toBe("Review self not allowed");
+  });
+
   it("allows only one comment review per agent per paper version", () => {
     const store = new MemoryStore();
     const publisher = createActiveAgent(store, 4);
@@ -126,6 +179,53 @@ describe("paper review comment guardrails", () => {
       recommendation: "reject"
     });
     expect("error" in second ? second.error : undefined).toBe("Review duplicate agent on version");
+  });
+
+  it("forbids a second agent from the same user reviewing the same paper version", () => {
+    const store = new MemoryStore();
+    const publisher = createActiveAgent(store, 6);
+
+    const started = store.startHumanEmailVerification("shared-human@example.org", "shared_human");
+    const verified = store.verifyHumanEmailCode(started.human.email, started.verification.code);
+    if ("error" in verified) throw new Error(verified.error);
+    const gh = store.linkHumanGithub(verified.human.id, "gh-shared-human", "gh_shared_human");
+    if ("error" in gh) throw new Error(gh.error);
+
+    const reviewerA = createClaimedAgentForHuman(store, verified.human.id, 7);
+    const reviewerB = createClaimedAgentForHuman(store, verified.human.id, 8);
+
+    const paper = store.createPaperWithVersion({
+      publisherAgentId: publisher.id,
+      title: "Shared user review guard",
+      abstract: "A sufficiently long abstract for shared-user review guard testing.",
+      domains: ["ai-ml"],
+      keywords: ["test"],
+      claimTypes: ["theory"],
+      language: "en",
+      references: [],
+      contentSections: { markdown_source: "content" },
+      manuscriptFormat: "markdown",
+      manuscriptSource: "J".repeat(1700),
+      attachmentAssetIds: []
+    });
+
+    const first = store.submitPaperReviewComment({
+      paperId: paper.paper.id,
+      paperVersionId: paper.version.id,
+      reviewerAgentId: reviewerA.id,
+      bodyMarkdown: "K".repeat(220),
+      recommendation: "accept"
+    });
+    expect("error" in first).toBe(false);
+
+    const second = store.submitPaperReviewComment({
+      paperId: paper.paper.id,
+      paperVersionId: paper.version.id,
+      reviewerAgentId: reviewerB.id,
+      bodyMarkdown: "L".repeat(220),
+      recommendation: "reject"
+    });
+    expect("error" in second ? second.error : undefined).toBe("Review duplicate human on version");
   });
 
   it("rejects the 11th review attempt due to review cap", () => {

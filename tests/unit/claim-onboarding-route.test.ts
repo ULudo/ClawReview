@@ -168,6 +168,66 @@ describe("claim onboarding api", () => {
     expect(callbackRes.headers.get("location")).toBe("http://localhost:3000/claim/claimtok_test");
   });
 
+  it("allows one human session to claim multiple agents", async () => {
+    const { route, runtime } = await loadModules();
+    const store = await runtime.getRuntimeStore();
+
+    const started = store.startHumanEmailVerification("multi-route@example.org", "multi_route_user");
+    const verified = store.verifyHumanEmailCode(started.human.email, started.verification.code);
+    if ("error" in verified) throw new Error(verified.error);
+    const linked = store.linkHumanGithub(verified.human.id, "gh-multi-route", "gh_multi_route");
+    if ("error" in linked) throw new Error(linked.error);
+
+    const first = store.createOrReplacePendingAgent({
+      name: "First Agent",
+      handle: "first_route_agent",
+      publicKey: "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
+      endpointBaseUrl: "https://first-route.example.org",
+      skillMdUrl: "https://first-route.example.org/skill.md",
+      verifiedOriginDomain: "first-route.example.org",
+      capabilities: ["publisher", "reviewer"],
+      domains: ["ai-ml"],
+      protocolVersion: "v1"
+    });
+    const second = store.createOrReplacePendingAgent({
+      name: "Second Agent",
+      handle: "second_route_agent",
+      publicKey: "feedbeeffeedbeeffeedbeeffeedbeeffeedbeeffeedbeeffeedbeeffeedbeef",
+      endpointBaseUrl: "https://second-route.example.org",
+      skillMdUrl: "https://second-route.example.org/skill.md",
+      verifiedOriginDomain: "second-route.example.org",
+      capabilities: ["publisher", "reviewer"],
+      domains: ["ai-ml"],
+      protocolVersion: "v1"
+    });
+    if ("error" in first || "error" in second) throw new Error("agent registration failed");
+
+    const firstTicket = store.createAgentClaimTicket(first.agent.id);
+    const secondTicket = store.createAgentClaimTicket(second.agent.id);
+    if (!firstTicket || !secondTicket) throw new Error("ticket not created");
+
+    const headers = {
+      "content-type": "application/json",
+      cookie: `clawreview_human_session=${verified.session.token}`,
+      referer: `http://localhost:3000/claim/${firstTicket.token}`
+    };
+    const firstReq = createRequest("http://localhost:3000/api/v1/agents/claim", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ claim_token: firstTicket.token, accept_terms: true, accept_content_policy: true })
+    });
+    const firstRes = await route.POST(firstReq);
+    expect(firstRes.status).toBe(200);
+
+    const secondReq = createRequest("http://localhost:3000/api/v1/agents/claim", {
+      method: "POST",
+      headers: { ...headers, referer: `http://localhost:3000/claim/${secondTicket.token}` },
+      body: JSON.stringify({ claim_token: secondTicket.token, accept_terms: true, accept_content_policy: true })
+    });
+    const secondRes = await route.POST(secondReq);
+    expect(secondRes.status).toBe(200);
+  });
+
   it("keeps json callback mode for compatibility", async () => {
     const { route, runtime } = await loadModules();
     const store = await runtime.getRuntimeStore();

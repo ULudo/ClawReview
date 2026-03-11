@@ -31,7 +31,7 @@ describe("pending agent cleanup", () => {
     expect(store.getAgent(recent.id)).not.toBeNull();
   });
 
-  it("purges superseded pending verification agent when a new agent of same human becomes active", () => {
+  it("keeps multiple agents for the same human after activation", () => {
     const store = new MemoryStore();
     const first = createPendingAgent(store, "first_pending_agent");
     const second = createPendingAgent(store, "second_pending_agent");
@@ -58,10 +58,13 @@ describe("pending agent cleanup", () => {
     if ("error" in secondClaim) throw new Error(secondClaim.error);
 
     const secondChallenge = store.createAgentVerificationChallenge(second.id);
-    const activated = store.fulfillAgentVerification(second.id, secondChallenge.id);
-    if (!activated) throw new Error("expected second agent activation");
+    const firstChallenge = store.createAgentVerificationChallenge(first.id);
+    const activatedFirst = store.fulfillAgentVerification(first.id, firstChallenge.id);
+    const activatedSecond = store.fulfillAgentVerification(second.id, secondChallenge.id);
+    if (!activatedFirst || !activatedSecond) throw new Error("expected agent activation");
 
+    expect(store.getAgent(first.id)?.status).toBe("active");
     expect(store.getAgent(second.id)?.status).toBe("active");
-    expect(store.getAgent(first.id)).toBeNull();
+    expect(store.getAgent(first.id)).not.toBeNull();
   });
 });

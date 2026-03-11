@@ -59,7 +59,6 @@ type NewAgentParams = {
 type ClaimAgentByHumanInput = {
   claimToken: string;
   humanId: string;
-  replaceExisting?: boolean;
 };
 
 export class MemoryStore {
@@ -105,6 +104,11 @@ export class MemoryStore {
         paper.latestStatus = "revision_required";
       }
     }
+    for (const paper of this.state.papers) {
+      if (!paper.publisherHumanId) {
+        paper.publisherHumanId = this.getAgent(paper.publisherAgentId)?.ownerHumanId;
+      }
+    }
     for (const version of this.state.paperVersions) {
       if (!version.manuscriptFormat && version.manuscriptSource) {
         version.manuscriptFormat = "markdown";
@@ -121,6 +125,11 @@ export class MemoryStore {
           // Keep historic records readable, but ensure future writes enforce strict limits.
           version.manuscriptSource = version.manuscriptSource.slice(0, PAPER_MANUSCRIPT_MAX_CHARS);
         }
+      }
+    }
+    for (const comment of this.state.paperReviewComments) {
+      if (!comment.reviewerHumanId) {
+        comment.reviewerHumanId = this.getAgent(comment.reviewerAgentId)?.ownerHumanId;
       }
     }
   }
@@ -178,6 +187,24 @@ export class MemoryStore {
 
   listHumans() {
     return [...this.state.humans].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  }
+
+  listAgentsForHuman(humanId: string, options?: { status?: Agent["status"] }) {
+    return this.state.agents
+      .filter((agent) => agent.ownerHumanId === humanId && (!options?.status || agent.status === options.status))
+      .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+  }
+
+  listPapersForHuman(humanId: string) {
+    return this.state.papers
+      .filter((paper) => paper.publisherHumanId === humanId)
+      .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+  }
+
+  listPaperReviewCommentsForHuman(humanId: string) {
+    return this.state.paperReviewComments
+      .filter((comment) => comment.reviewerHumanId === humanId)
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   }
 
   private generateEmailCode() {
@@ -486,27 +513,6 @@ export class MemoryStore {
     const human = this.getHuman(input.humanId);
     if (!human) return { error: "Human not found" as const };
 
-    const ownedActive = this.state.agents.find((candidate) => (
-      candidate.ownerHumanId === human.id &&
-      candidate.id !== agent.id &&
-      candidate.status === "active"
-    ));
-    if (ownedActive && !input.replaceExisting) {
-      return { error: "Replace required" as const, existingAgentId: ownedActive.id };
-    }
-    if (ownedActive && input.replaceExisting) {
-      ownedActive.status = "deactivated";
-      ownedActive.updatedAt = nowIso();
-      this.audit({
-        actorType: "human_operator",
-        actorId: human.id,
-        action: "agent.deactivated.replace_flow",
-        targetType: "agent",
-        targetId: ownedActive.id,
-        metadata: { replacedBy: agent.id }
-      });
-    }
-
     ticket.fulfilledAt = nowIso();
     agent.ownerHumanId = human.id;
     agent.humanClaimedAt = nowIso();
@@ -670,22 +676,6 @@ export class MemoryStore {
     return [...staleIds];
   }
 
-  private purgeSupersededPendingAgentsForHuman(humanId: string, keepAgentId: string) {
-    const staleAgentIds = this.state.agents
-      .filter((candidate) => (
-        candidate.ownerHumanId === humanId &&
-        candidate.id !== keepAgentId &&
-        (candidate.status === "pending_claim" || candidate.status === "pending_agent_verification") &&
-        !this.state.papers.some((paper) => paper.publisherAgentId === candidate.id)
-      ))
-      .map((candidate) => candidate.id);
-    return this.purgePendingAgentsByIds(
-      staleAgentIds,
-      "superseded_by_active_agent",
-      `Superseded by newly active agent ${keepAgentId}`
-    );
-  }
-
   fulfillAgentVerification(agentId: string, challengeId: string) {
     const agent = this.getAgent(agentId);
     const challenge = this.getAgentVerificationChallenge(challengeId);
@@ -702,9 +692,6 @@ export class MemoryStore {
       targetType: "agent",
       targetId: agent.id
     });
-    if (agent.status === "active" && agent.ownerHumanId) {
-      this.purgeSupersededPendingAgentsForHuman(agent.ownerHumanId, agent.id);
-    }
     return agent;
   }
 
@@ -860,9 +847,11 @@ export class MemoryStore {
   }) {
     const now = nowIso();
     const versionId = randomId("pv");
+    const publisherHumanId = this.getAgent(input.publisherAgentId)?.ownerHumanId;
     const paper: Paper = {
       id: randomId("paper"),
       publisherAgentId: input.publisherAgentId,
+      publisherHumanId,
       title: input.title,
       currentVersionId: versionId,
       latestStatus: "under_review",
@@ -959,6 +948,7 @@ export class MemoryStore {
     };
     this.state.paperVersions.push(version);
     paper.currentVersionId = version.id;
+    paper.publisherHumanId = this.getAgent(input.publisherAgentId)?.ownerHumanId ?? paper.publisherHumanId;
     paper.title = input.title;
     paper.domains = [...input.domains];
     paper.keywords = [...input.keywords];
@@ -1030,11 +1020,15 @@ export class MemoryStore {
     const comments = this.listPaperReviewCommentsForVersion(paperVersionId);
     const reviewCap = this.getPaperVersion(paperVersionId)?.reviewCap ?? REVIEW_DECISION_CAP;
     const reviewerAgentIds = Array.from(new Set(comments.map((comment) => comment.reviewerAgentId)));
+    const reviewerHumanIds = Array.from(new Set(comments.map((comment) => comment.reviewerHumanId).filter((value): value is string => Boolean(value))));
+    const viewerHumanId = viewerAgentId ? this.getAgent(viewerAgentId)?.ownerHumanId : undefined;
     return {
       reviewCount: comments.length,
       reviewCap,
       reviewerAgentIds,
-      alreadyReviewedByAgent: viewerAgentId ? reviewerAgentIds.includes(viewerAgentId) : false
+      reviewerHumanIds,
+      alreadyReviewedByAgent: viewerAgentId ? reviewerAgentIds.includes(viewerAgentId) : false,
+      alreadyReviewedByHuman: viewerHumanId ? reviewerHumanIds.includes(viewerHumanId) : false
     };
   }
 
@@ -1052,6 +1046,9 @@ export class MemoryStore {
     const agent = this.getAgent(input.reviewerAgentId);
     if (!agent || agent.status !== "active") return { error: "Reviewer agent not active" as const };
     if (paper.publisherAgentId === agent.id) return { error: "Review self not allowed" as const };
+    if (paper.publisherHumanId && agent.ownerHumanId && paper.publisherHumanId === agent.ownerHumanId) {
+      return { error: "Review self not allowed" as const };
+    }
     const versionComments = this.listPaperReviewCommentsForVersion(version.id);
     if (versionComments.length >= version.reviewCap) return { error: "Review cap reached" as const };
     if (paper.latestStatus !== "under_review") return { error: "Paper is not under review" as const };
@@ -1060,12 +1057,20 @@ export class MemoryStore {
       comment.paperVersionId === version.id && comment.reviewerAgentId === agent.id
     ));
     if (alreadyCommented) return { error: "Review duplicate agent on version" as const };
+    const reviewerHumanId = agent.ownerHumanId;
+    if (reviewerHumanId) {
+      const alreadyCommentedByHuman = this.state.paperReviewComments.some((comment) => (
+        comment.paperVersionId === version.id && comment.reviewerHumanId === reviewerHumanId
+      ));
+      if (alreadyCommentedByHuman) return { error: "Review duplicate human on version" as const };
+    }
 
     const comment = {
       id: randomId("comment"),
       paperId: paper.id,
       paperVersionId: version.id,
       reviewerAgentId: agent.id,
+      reviewerHumanId,
       reviewerAgentHandle: agent.handle,
       reviewerOriginDomain: agent.verifiedOriginDomain,
       bodyMarkdown: input.bodyMarkdown,
@@ -1105,6 +1110,9 @@ export class MemoryStore {
     const paper = this.getPaper(assignment.paperId);
     if (!paper) return { error: "Paper not found" as const };
     if (paper.publisherAgentId === agent.id) return { error: "Review self not allowed" as const };
+    if (paper.publisherHumanId && agent.ownerHumanId && paper.publisherHumanId === agent.ownerHumanId) {
+      return { error: "Review self not allowed" as const };
+    }
     assignment.status = "claimed";
     assignment.claimedByAgentId = agentId;
     assignment.claimedAt = nowIso();
@@ -1151,6 +1159,17 @@ export class MemoryStore {
     const paper = this.getPaper(paperVersion.paperId);
     if (!paper) return { error: "Paper not found" as const };
     if (paper.publisherAgentId === input.reviewerAgentId) return { error: "Review self not allowed" as const };
+    if (paper.publisherHumanId && agent.ownerHumanId && paper.publisherHumanId === agent.ownerHumanId) {
+      return { error: "Review self not allowed" as const };
+    }
+    if (agent.ownerHumanId) {
+      const duplicateReviewByHuman = this.state.reviews.some((review) => {
+        if (review.paperVersionId !== paperVersion.id) return false;
+        const reviewerAgent = this.getAgent(review.reviewerAgentId);
+        return reviewerAgent?.ownerHumanId === agent.ownerHumanId;
+      });
+      if (duplicateReviewByHuman) return { error: "Review duplicate human on version" as const };
+    }
     const reviewCount = this.listReviewsForVersion(paperVersion.id).length;
     if (reviewCount >= paperVersion.reviewCap) return { error: "Review cap reached" as const };
     if (paper.latestStatus !== "under_review") return { error: "Paper is not under review" as const };
@@ -1233,7 +1252,13 @@ export class MemoryStore {
     const comments = this.listPaperReviewCommentsForVersion(version.id).filter((comment) => comment.recommendation);
     if (!comments.length) return null;
     const reviewCap = version.reviewCap || REVIEW_DECISION_CAP;
-    const counted = comments.slice(0, reviewCap);
+    const seenVoters = new Set<string>();
+    const counted = comments.filter((comment) => {
+      const voterKey = comment.reviewerHumanId ? `human:${comment.reviewerHumanId}` : `agent:${comment.reviewerAgentId}`;
+      if (seenVoters.has(voterKey)) return false;
+      seenVoters.add(voterKey);
+      return true;
+    }).slice(0, reviewCap);
     const positiveCount = counted.filter((comment) => comment.recommendation === "accept").length;
     const negativeCount = counted.filter((comment) => comment.recommendation === "reject").length;
     const snapshot: DecisionRecord["snapshot"] = {

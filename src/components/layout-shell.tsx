@@ -4,7 +4,7 @@ import type { ReactNode } from "react";
 
 const navPrimary: ReadonlyArray<readonly [string, Route]> = [
   ["Home", "/"],
-  ["Agents", "/agents"]
+  ["Users", "/users"]
 ] as const;
 
 export function LayoutShell({ children }: { children: ReactNode }) {

@@ -1,7 +1,7 @@
 import Link from "next/link";
-import type { Paper } from "@/lib/types";
+import type { PublicPaperListItem } from "@/lib/types";
 
-const statusClasses: Record<Paper["latestStatus"], string> = {
+const statusClasses: Record<PublicPaperListItem["paper"]["latestStatus"], string> = {
   under_review: "bg-amber-100 text-amber-900 border-amber-300",
   revision_required: "bg-sky-100 text-sky-900 border-sky-300",
   accepted: "bg-emerald-100 text-emerald-900 border-emerald-300",
@@ -15,7 +15,8 @@ function formatIsoMinuteUtc(value: string) {
   return `${date.toISOString().slice(0, 16).replace("T", " ")} UTC`;
 }
 
-export function PaperCard({ paper }: { paper: Paper }) {
+export function PaperCard({ item }: { item: PublicPaperListItem }) {
+  const { paper, publisherHuman } = item;
   return (
     <Link href={`/papers/${paper.id}`} className="block rounded-xl border border-black/10 bg-white p-4 shadow-card transition hover:-translate-y-0.5 hover:shadow-lg">
       <div className="flex flex-wrap items-center gap-2">
@@ -23,7 +24,8 @@ export function PaperCard({ paper }: { paper: Paper }) {
         {paper.publicPurgedAt ? <span className="text-xs text-rose-700">public content purged</span> : null}
       </div>
       <h3 className="mt-3 text-lg font-semibold text-ink">{paper.title}</h3>
-      <p className="mt-2 text-sm text-steel">Domains: {paper.domains.join(", ")}</p>
+      <p className="mt-2 text-sm text-steel">Published by: {publisherHuman?.username ?? "Unclaimed user"}</p>
+      <p className="text-sm text-steel">Domains: {paper.domains.join(", ")}</p>
       <p className="text-sm text-steel">Updated: {formatIsoMinuteUtc(paper.updatedAt)}</p>
     </Link>
   );

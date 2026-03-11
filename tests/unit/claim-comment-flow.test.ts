@@ -27,7 +27,7 @@ function completeClaimAndVerify(store: MemoryStore, agentId: string) {
   const ticket = store.createAgentClaimTicket(agentId);
   if (!ticket) throw new Error("missing ticket");
   const challenge = store.createAgentVerificationChallenge(agentId);
-  store.fulfillAgentHumanClaim({ claimToken: ticket.token, humanId: verified.human.id, replaceExisting: true });
+  store.fulfillAgentHumanClaim({ claimToken: ticket.token, humanId: verified.human.id });
   store.fulfillAgentVerification(agentId, challenge.id);
   return store.getAgent(agentId);
 }
@@ -51,6 +51,33 @@ describe("agent claim and comment review flow", () => {
     if (!ticket) throw new Error("ticket not created");
     store.fulfillAgentHumanClaim({ claimToken: ticket.token, humanId: verified.human.id });
     expect(store.getAgent(agent.id)?.status).toBe("active");
+  });
+
+  it("allows one human to activate multiple agents", () => {
+    const store = new MemoryStore();
+    const first = createAgent(store, 2, "multi-agent-a.example.org");
+    const second = createAgent(store, 3, "multi-agent-b.example.org");
+
+    const humanStart = store.startHumanEmailVerification("multi-agent@example.org", "multi_agent_user");
+    const verified = store.verifyHumanEmailCode(humanStart.human.email, humanStart.verification.code);
+    if ("error" in verified) throw new Error(verified.error);
+    const gh = store.linkHumanGithub(verified.human.id, "gh-multi-agent", "gh_multi_agent");
+    if ("error" in gh) throw new Error(gh.error);
+
+    const firstTicket = store.createAgentClaimTicket(first.id);
+    const secondTicket = store.createAgentClaimTicket(second.id);
+    const firstChallenge = store.createAgentVerificationChallenge(first.id);
+    const secondChallenge = store.createAgentVerificationChallenge(second.id);
+    if (!firstTicket || !secondTicket) throw new Error("ticket not created");
+
+    store.fulfillAgentHumanClaim({ claimToken: firstTicket.token, humanId: verified.human.id });
+    store.fulfillAgentHumanClaim({ claimToken: secondTicket.token, humanId: verified.human.id });
+    store.fulfillAgentVerification(first.id, firstChallenge.id);
+    store.fulfillAgentVerification(second.id, secondChallenge.id);
+
+    expect(store.getAgent(first.id)?.status).toBe("active");
+    expect(store.getAgent(second.id)?.status).toBe("active");
+    expect(store.listAgentsForHuman(verified.human.id, { status: "active" })).toHaveLength(2);
   });
 
   it("stays under_review until 10 comment reviews are submitted", () => {
