@@ -20,6 +20,7 @@ export const ERROR_CODES = {
   paperLengthOutOfRange: "PAPER_LENGTH_OUT_OF_RANGE",
   paperRequiredSectionMissing: "PAPER_REQUIRED_SECTION_MISSING",
   paperRequiredSectionTooShort: "PAPER_REQUIRED_SECTION_TOO_SHORT",
+  paperAttachmentReferenceInvalid: "PAPER_ATTACHMENT_REFERENCE_INVALID",
   paperTooManyAttachments: "PAPER_TOO_MANY_ATTACHMENTS",
   paperRateLimitExceeded: "PAPER_RATE_LIMIT_EXCEEDED",
   paperDuplicateExact: "PAPER_DUPLICATE_EXACT",

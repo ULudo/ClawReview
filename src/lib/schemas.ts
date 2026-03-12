@@ -1,10 +1,21 @@
 import { z } from "zod";
 import {
+  ABSTRACT_MAX_WORDS,
   CODE_REQUIRED_CLAIM_TYPES,
   MAX_ATTACHMENT_COUNT_PER_PAPER,
-  PAPER_MANUSCRIPT_MAX_CHARS,
-  PAPER_MANUSCRIPT_MIN_CHARS
+  PAPER_MANUSCRIPT_MAX_SOURCE_CHARS,
+  PAPER_MANUSCRIPT_MAX_WORDS,
+  PAPER_MANUSCRIPT_MIN_WORDS,
+  PAPER_SEMANTIC_BLOCK_MIN_BODY_CHARS
 } from "@/lib/constants";
+import {
+  countTextWords,
+  findCoveredSemanticBlocksFromHeadings,
+  findSemanticBlockCoverage,
+  getManuscriptMetrics,
+  getMissingSemanticBlocks,
+  REQUIRED_SEMANTIC_BLOCKS
+} from "@/lib/manuscript";
 
 function isHttpsOrLocalDevHttp(value: string) {
   try {
@@ -31,38 +42,26 @@ export const referenceSchema = z.object({
 
 export const manuscriptSchema = z.object({
   format: z.literal("markdown"),
-  source: z
-    .string()
-    .min(PAPER_MANUSCRIPT_MIN_CHARS, `manuscript.source must be at least ${PAPER_MANUSCRIPT_MIN_CHARS} characters`)
-    .max(PAPER_MANUSCRIPT_MAX_CHARS, `manuscript.source must be at most ${PAPER_MANUSCRIPT_MAX_CHARS} characters`)
+  source: z.string()
+}).superRefine((value, ctx) => {
+  const metrics = getManuscriptMetrics(value.source);
+
+  if (metrics.sourceChars > PAPER_MANUSCRIPT_MAX_SOURCE_CHARS) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["source"],
+      message: `manuscript.source must be at most ${PAPER_MANUSCRIPT_MAX_SOURCE_CHARS} raw characters`
+    });
+  }
+
+  if (metrics.wordCount < PAPER_MANUSCRIPT_MIN_WORDS || metrics.wordCount > PAPER_MANUSCRIPT_MAX_WORDS) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["source"],
+      message: `manuscript.source must be between ${PAPER_MANUSCRIPT_MIN_WORDS} and ${PAPER_MANUSCRIPT_MAX_WORDS} words (image references do not count)`
+    });
+  }
 });
-
-const REQUIRED_PAPER_SECTIONS = [
-  "Introduction",
-  "Literature Review",
-  "Problem Statement",
-  "Method",
-  "Evaluation",
-  "Conclusion"
-] as const;
-
-const MIN_REQUIRED_SECTION_CHARS = 120;
-
-function escapeRegExp(value: string) {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-function sectionBodyLengthFromMarkdown(source: string, heading: string): number | null {
-  const normalized = source.replace(/\r\n/g, "\n");
-  const headingPattern = new RegExp(`(^|\\n)#{1,6}\\s*(?:\\d+\\.?\\s*)?${escapeRegExp(heading)}\\s*(?:\\n|$)`, "i");
-  const match = headingPattern.exec(normalized);
-  if (!match || match.index == null) return null;
-  const sectionStart = match.index + match[0].length;
-  const remainder = normalized.slice(sectionStart);
-  const nextHeading = remainder.match(/\n#{1,6}\s+/);
-  const sectionBody = nextHeading ? remainder.slice(0, nextHeading.index) : remainder;
-  return sectionBody.replace(/\s+/g, " ").trim().length;
-}
 
 function normalizeSectionKey(value: string) {
   return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
@@ -96,7 +95,15 @@ export const agentClaimRequestSchema = z.object({
 const paperSubmissionBaseSchema = z.object({
   publisher_agent_id: z.string().min(1),
   title: z.string().min(10).max(300),
-  abstract: z.string().min(80).max(5000),
+  abstract: z.string().min(80).max(5000).superRefine((value, ctx) => {
+    const wordCount = countTextWords(value);
+    if (wordCount > ABSTRACT_MAX_WORDS) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `abstract must be at most ${ABSTRACT_MAX_WORDS} words`
+      });
+    }
+  }),
   domains: z.array(z.string().min(1)).min(1),
   keywords: z.array(z.string().min(1)).min(1),
   claim_types: z.array(claimTypeSchema).min(1),
@@ -134,40 +141,40 @@ function applyPaperSubmissionRules<T extends z.ZodTypeAny>(schema: T) {
 
     const manuscript = (value as { manuscript?: { format: "markdown"; source: string } }).manuscript;
     if (manuscript?.format === "markdown") {
-      for (const section of REQUIRED_PAPER_SECTIONS) {
-        const length = sectionBodyLengthFromMarkdown(manuscript.source, section);
-        if (length == null) {
+      const missingBlocks = getMissingSemanticBlocks(manuscript.source);
+      missingBlocks.forEach((block) => {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["manuscript", "source"],
+          message: `Missing required semantic block: ${block.label}`
+        });
+      });
+
+      const coverage = findSemanticBlockCoverage(manuscript.source);
+      coverage.forEach(({ block, section }) => {
+        if (section.bodyChars < PAPER_SEMANTIC_BLOCK_MIN_BODY_CHARS) {
           ctx.addIssue({
             code: z.ZodIssueCode.custom,
             path: ["manuscript", "source"],
-            message: `Missing required markdown heading: ${section}`
-          });
-          continue;
-        }
-        if (length < MIN_REQUIRED_SECTION_CHARS) {
-          ctx.addIssue({
-            code: z.ZodIssueCode.custom,
-            path: ["manuscript", "source"],
-            message: `${section} section is too short (minimum ${MIN_REQUIRED_SECTION_CHARS} characters)`
+            message: `${block.label} block is too short (minimum ${PAPER_SEMANTIC_BLOCK_MIN_BODY_CHARS} characters in heading "${section.heading}")`
           });
         }
-      }
+      });
     }
 
     const contentSections = (value as { content_sections?: Record<string, string> }).content_sections;
     if (contentSections && !manuscript) {
-      const keys = Object.keys(contentSections).map(normalizeSectionKey);
-      for (const section of REQUIRED_PAPER_SECTIONS) {
-        const normalized = normalizeSectionKey(section);
-        const hasKey = keys.some((key) => key === normalized || key.includes(normalized));
-        if (!hasKey) {
+      const headings = Object.keys(contentSections).map(normalizeSectionKey);
+      const covered = findCoveredSemanticBlocksFromHeadings(headings);
+      REQUIRED_SEMANTIC_BLOCKS.forEach((block) => {
+        if (!covered.has(block.key)) {
           ctx.addIssue({
             code: z.ZodIssueCode.custom,
             path: ["content_sections"],
-            message: `Missing required section key in content_sections: ${section}`
+            message: `Missing required semantic block in content_sections: ${block.label}`
           });
         }
-      }
+      });
     }
   });
 }

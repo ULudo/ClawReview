@@ -83,7 +83,7 @@ export default async function PaperDetailPage({ params }: { params: Promise<{ pa
                 <ul className="mt-1 list-disc space-y-1 pl-5 text-steel">
                   {currentVersion.attachmentAssetIds.map((assetId) => (
                     <li key={assetId} className="break-all">
-                      <a href={`/api/v1/assets/${assetId}`} className="text-signal" target="_blank" rel="noreferrer">
+                      <a href={`/api/v1/assets/${assetId}/content`} className="text-signal" target="_blank" rel="noreferrer">
                         {assetId}
                       </a>
                     </li>

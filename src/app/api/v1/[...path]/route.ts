@@ -18,13 +18,15 @@ import {
   HUMAN_EMAIL_CODE_TTL_MS,
   MAX_ATTACHMENT_BYTES,
   MAX_ATTACHMENT_COUNT_PER_PAPER,
-  PAPER_MANUSCRIPT_MAX_CHARS,
-  PAPER_MANUSCRIPT_MIN_CHARS,
+  PAPER_MANUSCRIPT_MAX_SOURCE_CHARS,
+  PAPER_MANUSCRIPT_MAX_WORDS,
+  PAPER_MANUSCRIPT_MIN_WORDS,
   RATE_LIMITS,
   SIGNATURE_MAX_SKEW_MS_DEFAULT
 } from "@/lib/constants";
 import { ERROR_CODES } from "@/lib/error-codes";
 import { sendVerificationEmail } from "@/lib/email/send-verification-email";
+import { getManuscriptMetrics } from "@/lib/manuscript";
 import {
   agentClaimRequestSchema,
   agentRegistrationRequestSchema,
@@ -196,9 +198,9 @@ function pickPaperValidationCode(error: ZodError) {
     const msg = issue.message.toLowerCase();
     if (field.includes("manuscript.format")) return ERROR_CODES.paperFormatNotAllowed;
     if (field.includes("attachment_asset_ids")) return ERROR_CODES.paperTooManyAttachments;
-    if (msg.includes("at least") || msg.includes("at most")) return ERROR_CODES.paperLengthOutOfRange;
-    if (msg.includes("missing required markdown heading")) return ERROR_CODES.paperRequiredSectionMissing;
-    if (msg.includes("section is too short")) return ERROR_CODES.paperRequiredSectionTooShort;
+    if (msg.includes("raw characters") || msg.includes("words") || msg.includes("at least") || msg.includes("at most")) return ERROR_CODES.paperLengthOutOfRange;
+    if (msg.includes("missing required semantic block")) return ERROR_CODES.paperRequiredSectionMissing;
+    if (msg.includes("block is too short")) return ERROR_CODES.paperRequiredSectionTooShort;
   }
   return ERROR_CODES.unprocessableEntity;
 }
@@ -488,6 +490,86 @@ function normalizePaperManuscript(input: {
   };
 }
 
+function getAssetContentUrl(req: NextRequest, assetId: string) {
+  return `${getPublicAppUrl(req)}/api/v1/assets/${assetId}/content`;
+}
+
+function getPublicAssetResponse(req: NextRequest, asset: {
+  id: string;
+  status: string;
+  byteSize: number;
+  contentType: string;
+  filename: string;
+}) {
+  return {
+    id: asset.id,
+    status: asset.status,
+    byte_size: asset.byteSize,
+    content_type: asset.contentType,
+    filename: asset.filename,
+    content_url: getAssetContentUrl(req, asset.id)
+  };
+}
+
+function validateManuscriptLength(source: string) {
+  const metrics = getManuscriptMetrics(source);
+
+  if (metrics.sourceChars > PAPER_MANUSCRIPT_MAX_SOURCE_CHARS) {
+    return {
+      response: unprocessableEntity(`manuscript.source must be at most ${PAPER_MANUSCRIPT_MAX_SOURCE_CHARS} raw characters.`, {
+        errorCode: ERROR_CODES.paperLengthOutOfRange,
+        fieldErrors: [{
+          field: "manuscript.source",
+          rule: "max_raw_chars",
+          expected: `<=${PAPER_MANUSCRIPT_MAX_SOURCE_CHARS}`,
+          actual: metrics.sourceChars
+        }],
+        hint: "Reduce raw markdown size and retry."
+      })
+    };
+  }
+
+  if (metrics.wordCount < PAPER_MANUSCRIPT_MIN_WORDS || metrics.wordCount > PAPER_MANUSCRIPT_MAX_WORDS) {
+    return {
+      response: unprocessableEntity(`manuscript.source must be between ${PAPER_MANUSCRIPT_MIN_WORDS} and ${PAPER_MANUSCRIPT_MAX_WORDS} words. Image references do not count.`, {
+        errorCode: ERROR_CODES.paperLengthOutOfRange,
+        fieldErrors: [{
+          field: "manuscript.source",
+          rule: "word_range",
+          expected: `${PAPER_MANUSCRIPT_MIN_WORDS}..${PAPER_MANUSCRIPT_MAX_WORDS}`,
+          actual: metrics.wordCount
+        }],
+        hint: "Adjust manuscript length and retry."
+      })
+    };
+  }
+
+  return { metrics };
+}
+
+function validateReferencedAttachments(
+  referencedAssetIds: string[],
+  attachmentAssetIds: string[]
+) {
+  const declared = new Set(attachmentAssetIds);
+  const missing = referencedAssetIds.filter((assetId) => !declared.has(assetId));
+
+  if (!missing.length) {
+    return null;
+  }
+
+  return unprocessableEntity("Every asset reference in the manuscript must also be listed in attachment_asset_ids.", {
+    errorCode: ERROR_CODES.paperAttachmentReferenceInvalid,
+    fieldErrors: missing.map((assetId) => ({
+      field: "attachment_asset_ids",
+      rule: "missing_asset_reference",
+      expected: `include ${assetId}`,
+      actual: "missing"
+    })),
+    hint: "Upload the PNG, complete the asset, then include every referenced asset id in attachment_asset_ids."
+  });
+}
+
 async function publicPaperView(paperId: string) {
   const store = await getRuntimeStore();
   const paper = store.getPaper(paperId);
@@ -679,10 +761,27 @@ export async function GET(req: NextRequest) {
       return ok({ history: store.getAgentManifestHistory(segments[1]) });
     }
 
+    if (segments.length === 3 && segments[0] === "assets" && segments[2] === "content") {
+      const asset = store.getAsset(segments[1]);
+      if (!asset || asset.status !== "completed" || !asset.dataBase64) {
+        return notFound("Asset not found", { errorCode: ERROR_CODES.assetNotFound });
+      }
+      const bytes = Buffer.from(asset.dataBase64, "base64");
+      return new Response(bytes, {
+        status: 200,
+        headers: {
+          "content-type": asset.contentType,
+          "content-length": String(bytes.byteLength),
+          "cache-control": "public, max-age=31536000, immutable",
+          "content-disposition": `inline; filename="${asset.filename}"`
+        }
+      });
+    }
+
     if (segments.length === 2 && segments[0] === "assets") {
       const asset = store.getAsset(segments[1]);
       if (!asset) return notFound("Asset not found", { errorCode: ERROR_CODES.assetNotFound });
-      return ok({ asset });
+      return ok({ asset: getPublicAssetResponse(req, asset) });
     }
 
     if (segments.length === 1 && segments[0] === "papers") {
@@ -965,13 +1064,7 @@ export async function POST(req: NextRequest) {
       });
       const uploadPath = `/api/v1/assets/${intent.id}/upload?token=${encodeURIComponent(intent.uploadToken)}`;
       const responseBody = {
-        asset: {
-          id: intent.id,
-          status: intent.status,
-          byte_size: intent.byteSize,
-          content_type: intent.contentType,
-          filename: intent.filename
-        },
+        asset: getPublicAssetResponse(req, intent),
         upload: {
           method: "PUT",
           upload_url: `${getPublicAppUrl(req)}${uploadPath}`,
@@ -1018,7 +1111,7 @@ export async function POST(req: NextRequest) {
         }
         return conflict(result.error ?? "Asset completion failed", { errorCode: ERROR_CODES.conflict });
       }
-      return await respondIdempotent(req, agent.id, 200, { asset: result.asset, completed: true });
+      return await respondIdempotent(req, agent.id, 200, { asset: getPublicAssetResponse(req, result.asset), completed: true });
     }
 
     if (segments.length === 2 && segments[0] === "agents" && segments[1] === "register") {
@@ -1410,18 +1503,8 @@ export async function POST(req: NextRequest) {
           fieldErrors: [{ field: "manuscript.format", rule: "equals", expected: "markdown", actual: manuscript.format }]
         });
       }
-      if (manuscript.source.length < PAPER_MANUSCRIPT_MIN_CHARS || manuscript.source.length > PAPER_MANUSCRIPT_MAX_CHARS) {
-        return unprocessableEntity(`manuscript.source must be between ${PAPER_MANUSCRIPT_MIN_CHARS} and ${PAPER_MANUSCRIPT_MAX_CHARS} characters.`, {
-          errorCode: ERROR_CODES.paperLengthOutOfRange,
-          fieldErrors: [{
-            field: "manuscript.source",
-            rule: "length_range",
-            expected: `${PAPER_MANUSCRIPT_MIN_CHARS}..${PAPER_MANUSCRIPT_MAX_CHARS}`,
-            actual: manuscript.source.length
-          }],
-          hint: "Adjust manuscript length and retry."
-        });
-      }
+      const manuscriptLength = validateManuscriptLength(manuscript.source);
+      if ("response" in manuscriptLength) return manuscriptLength.response;
       if ((payload.attachment_asset_ids ?? []).length > MAX_ATTACHMENT_COUNT_PER_PAPER) {
         return unprocessableEntity(`No more than ${MAX_ATTACHMENT_COUNT_PER_PAPER} attachments are allowed`, {
           errorCode: ERROR_CODES.paperTooManyAttachments
@@ -1448,6 +1531,8 @@ export async function POST(req: NextRequest) {
         }
         return unprocessableEntity(attachmentCheck.error ?? "Attachment validation failed", { errorCode: ERROR_CODES.unprocessableEntity });
       }
+      const referencedAttachmentCheck = validateReferencedAttachments(manuscriptLength.metrics.referencedAssetIds, attachments);
+      if (referencedAttachmentCheck) return referencedAttachmentCheck;
 
       const createdPaper = store.createPaperWithVersion({
         ...normalizePaperManuscript(payload),
@@ -1518,17 +1603,8 @@ export async function POST(req: NextRequest) {
       if (manuscript.format !== "markdown") {
         return unprocessableEntity("Only markdown manuscript format is allowed", { errorCode: ERROR_CODES.paperFormatNotAllowed });
       }
-      if (manuscript.source.length < PAPER_MANUSCRIPT_MIN_CHARS || manuscript.source.length > PAPER_MANUSCRIPT_MAX_CHARS) {
-        return unprocessableEntity(`manuscript.source must be between ${PAPER_MANUSCRIPT_MIN_CHARS} and ${PAPER_MANUSCRIPT_MAX_CHARS} characters.`, {
-          errorCode: ERROR_CODES.paperLengthOutOfRange,
-          fieldErrors: [{
-            field: "manuscript.source",
-            rule: "length_range",
-            expected: `${PAPER_MANUSCRIPT_MIN_CHARS}..${PAPER_MANUSCRIPT_MAX_CHARS}`,
-            actual: manuscript.source.length
-          }]
-        });
-      }
+      const manuscriptLength = validateManuscriptLength(manuscript.source);
+      if ("response" in manuscriptLength) return manuscriptLength.response;
       if ((payload.attachment_asset_ids ?? []).length > MAX_ATTACHMENT_COUNT_PER_PAPER) {
         return unprocessableEntity(`No more than ${MAX_ATTACHMENT_COUNT_PER_PAPER} attachments are allowed`, {
           errorCode: ERROR_CODES.paperTooManyAttachments
@@ -1552,6 +1628,8 @@ export async function POST(req: NextRequest) {
         }
         return unprocessableEntity(attachmentCheck.error ?? "Attachment validation failed", { errorCode: ERROR_CODES.unprocessableEntity });
       }
+      const referencedAttachmentCheck = validateReferencedAttachments(manuscriptLength.metrics.referencedAssetIds, attachments);
+      if (referencedAttachmentCheck) return referencedAttachmentCheck;
 
       const createdVersion = store.createPaperVersion(paperId, {
         ...normalizePaperManuscript(payload),

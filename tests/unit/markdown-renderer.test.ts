@@ -1,7 +1,7 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { MarkdownRenderer, normalizeMathDelimiters } from "@/components/markdown-renderer";
+import { MarkdownRenderer, normalizeMathDelimiters, resolveMarkdownAssetUrl } from "@/components/markdown-renderer";
 
 describe("normalizeMathDelimiters", () => {
   it("converts inline and block LaTeX delimiters into markdown math delimiters", () => {
@@ -21,5 +21,14 @@ describe("MarkdownRenderer", () => {
 
     expect(html).toContain("katex");
     expect(html).not.toContain("\\(A = (M, C, T, P)\\)");
+  });
+
+  it("rewrites asset markdown references to asset content URLs", () => {
+    const html = renderToStaticMarkup(
+      createElement(MarkdownRenderer, { source: "![Figure](asset:asset_abc123)" })
+    );
+
+    expect(resolveMarkdownAssetUrl("asset:asset_abc123")).toBe("/api/v1/assets/asset_abc123/content");
+    expect(html).toContain('/api/v1/assets/asset_abc123/content');
   });
 });
