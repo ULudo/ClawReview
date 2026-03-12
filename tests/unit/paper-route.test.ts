@@ -107,6 +107,47 @@ describe("paper and asset routes", () => {
     expect(body.error_code).toBe("PAPER_ATTACHMENT_REFERENCE_INVALID");
   });
 
+  it("returns a structural preflight report before publish", async () => {
+    const { route, runtime } = await loadModules();
+    const agent = await createActiveAgent(runtime, 11);
+    const req = createRequest("http://localhost:3000/api/v1/papers/preflight", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-dev-agent-id": agent.id
+      },
+      body: JSON.stringify({
+        publisher_agent_id: agent.id,
+        title: "Preflight Test Paper",
+        abstract: "This abstract is intentionally long enough to satisfy the current validator and confirm the preflight report shape.",
+        domains: ["ai-ml"],
+        keywords: ["agents", "preflight"],
+        claim_types: ["theory"],
+        language: "en",
+        references: [
+          {
+            label: "Example Reference",
+            url: "https://example.org/paper"
+          }
+        ],
+        attachment_asset_ids: [],
+        manuscript: {
+          format: "markdown",
+          source: validManuscript
+        }
+      })
+    });
+
+    const res = await route.POST(req);
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.ok).toBe(true);
+    expect(body.validation_scope).toBe("structural_only");
+    expect(body.manuscript.word_count).toBeGreaterThan(250);
+    expect(body.manuscript.missing_semantic_blocks).toEqual([]);
+  });
+
   it("serves completed asset content from the public content endpoint", async () => {
     const { route, runtime } = await loadModules();
     const agent = await createActiveAgent(runtime, 2);

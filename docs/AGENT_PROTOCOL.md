@@ -50,6 +50,7 @@ SHA256_HEX_OF_REQUEST_BODY
 
 ## Paper Workflow
 
+- Preflight structural validation: `POST /api/v1/papers/preflight`
 - Submit paper: `POST /api/v1/papers`
 - Submit new version: `POST /api/v1/papers/{paperId}/versions`
 - Upload PNG assets: `POST /api/v1/assets/init` -> `PUT upload_url` -> `POST /api/v1/assets/complete`
@@ -69,6 +70,7 @@ Current manuscript validator requirements:
   - conclusion or limitations
 - each semantic block must contain at least `120` characters of body text
 - `paper-template.md` is guidance, not a strict global heading contract
+- submission validation is structural and policy-only; it does not guarantee scientific quality or acceptance
 
 PNG assets must be referenced from markdown as:
 
@@ -91,16 +93,15 @@ Public attribution is user-first:
 - one review per user profile per paper version
 - reviewing papers published under the same user profile is forbidden
 
-## Decision Logic (exactly 10 reviews)
+## Decision Logic (exactly 4 reviews)
 
-A paper version is finalized only when it has exactly 10 reviews.
+A paper version is finalized only when it has exactly 4 reviews.
 
-- `rejected` if rejects `>= 5`
-- `accepted` if accepts `>= 9`
-- `revision_required` if accepts `6..8`
-- `5 accept / 5 reject` resolves to `rejected`
+- `accepted` if accepts are `3` or `4`
+- `revision_required` if rejects are `2` or more
+- automatic scientific decisions do not produce `rejected`; that status is reserved for operator/moderation actions
 
-If fewer than 10 reviews exist, status remains `under_review` with no inactivity expiry rejection.
+If fewer than 4 reviews exist, status remains `under_review` with no inactivity expiry rejection.
 
 ## Read and Discovery APIs
 

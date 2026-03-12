@@ -79,7 +79,7 @@ describe("agent claim and comment review flow", () => {
     expect(store.listAgentsForHuman(verified.human.id, { status: "active" })).toHaveLength(2);
   });
 
-  it("stays under_review until 10 comment reviews are submitted", () => {
+  it("stays under_review until 4 comment reviews are submitted", () => {
     const store = new MemoryStore();
     const publisher = createAgent(store, 10, "publisher.example.org");
     completeClaimAndVerify(store, publisher.id);
@@ -96,7 +96,7 @@ describe("agent claim and comment review flow", () => {
       contentSections: { intro: "hello" }
     });
 
-    for (let i = 0; i < 9; i += 1) {
+    for (let i = 0; i < 3; i += 1) {
       const reviewer = createAgent(store, 20 + i, `reviewer-${i}.example.org`);
       completeClaimAndVerify(store, reviewer.id);
       store.submitPaperReviewComment({
@@ -104,14 +104,14 @@ describe("agent claim and comment review flow", () => {
         paperVersionId: created.version.id,
         reviewerAgentId: reviewer.id,
         bodyMarkdown: `Review ${i}: ${"A".repeat(220)}`,
-        recommendation: i < 6 ? "accept" : "reject"
+        recommendation: i < 2 ? "accept" : "reject"
       });
     }
 
     expect(store.getPaper(created.paper.id)?.latestStatus).toBe("under_review");
   });
 
-  it("marks revision_required at 10 reviews with 6 accepts", () => {
+  it("marks revision_required at 4 reviews with 2 rejects", () => {
     const store = new MemoryStore();
     const publisher = createAgent(store, 40, "publisher2.example.org");
     completeClaimAndVerify(store, publisher.id);
@@ -128,7 +128,7 @@ describe("agent claim and comment review flow", () => {
       contentSections: { intro: "hello" }
     });
 
-    for (let i = 0; i < 10; i += 1) {
+    for (let i = 0; i < 4; i += 1) {
       const reviewer = createAgent(store, 50 + i, `reviewer2-${i}.example.org`);
       completeClaimAndVerify(store, reviewer.id);
       store.submitPaperReviewComment({
@@ -136,11 +136,43 @@ describe("agent claim and comment review flow", () => {
         paperVersionId: created.version.id,
         reviewerAgentId: reviewer.id,
         bodyMarkdown: `Review ${i}: ${"B".repeat(220)}`,
-        recommendation: i < 6 ? "accept" : "reject"
+        recommendation: i < 2 ? "accept" : "reject"
       });
     }
 
     expect(store.getPaper(created.paper.id)?.latestStatus).toBe("revision_required");
+  });
+
+  it("marks accepted at 4 reviews with at least 3 accepts", () => {
+    const store = new MemoryStore();
+    const publisher = createAgent(store, 55, "publisher-accepted.example.org");
+    completeClaimAndVerify(store, publisher.id);
+
+    const created = store.createPaperWithVersion({
+      publisherAgentId: publisher.id,
+      title: "Accept Threshold Test",
+      abstract: "Abstract",
+      domains: ["ai-ml"],
+      keywords: ["test"],
+      claimTypes: ["theory"],
+      language: "en",
+      references: [],
+      contentSections: { intro: "hello" }
+    });
+
+    for (let i = 0; i < 4; i += 1) {
+      const reviewer = createAgent(store, 60 + i, `reviewer-accept-${i}.example.org`);
+      completeClaimAndVerify(store, reviewer.id);
+      store.submitPaperReviewComment({
+        paperId: created.paper.id,
+        paperVersionId: created.version.id,
+        reviewerAgentId: reviewer.id,
+        bodyMarkdown: `Review ${i}: ${"AC".repeat(140)}`,
+        recommendation: i < 3 ? "accept" : "reject"
+      });
+    }
+
+    expect(store.getPaper(created.paper.id)?.latestStatus).toBe("accepted");
   });
 
   it("starts a fresh review run for a revised paper version and preserves v1 history", () => {
@@ -160,7 +192,7 @@ describe("agent claim and comment review flow", () => {
       contentSections: { intro: "v1 intro" }
     });
 
-    const reviewers = Array.from({ length: 10 }, (_, i) => {
+    const reviewers = Array.from({ length: 4 }, (_, i) => {
       const reviewer = createAgent(store, 80 + i, `reviewer3-${i}.example.org`);
       completeClaimAndVerify(store, reviewer.id);
       return reviewer;
@@ -172,12 +204,12 @@ describe("agent claim and comment review flow", () => {
         paperVersionId: created.version.id,
         reviewerAgentId: reviewer.id,
         bodyMarkdown: `V1 review ${i}: ${"C".repeat(220)}`,
-        recommendation: i < 6 ? "accept" : "reject"
+        recommendation: i < 2 ? "accept" : "reject"
       });
     });
 
     expect(store.getPaper(created.paper.id)?.latestStatus).toBe("revision_required");
-    expect(store.listPaperReviewCommentsForVersion(created.version.id)).toHaveLength(10);
+    expect(store.listPaperReviewCommentsForVersion(created.version.id)).toHaveLength(4);
     expect(store.listDecisionsForPaperVersion(created.version.id).at(-1)?.status).toBe("revision_required");
 
     const revised = store.createPaperVersion(created.paper.id, {
@@ -209,6 +241,6 @@ describe("agent claim and comment review flow", () => {
 
     expect("error" in firstV2Review).toBe(false);
     expect(store.listPaperReviewCommentsForVersion(revised.version.id)).toHaveLength(1);
-    expect(store.listPaperReviewCommentsForVersion(created.version.id)).toHaveLength(10);
+    expect(store.listPaperReviewCommentsForVersion(created.version.id)).toHaveLength(4);
   });
 });

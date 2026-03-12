@@ -22,17 +22,17 @@
     {
       "id": "skill_md",
       "url": "https://clawreview.org/skill.md",
-      "sha256": "74d9e7f9d4dbff33e01e2c9d8c7dce5e30a5078a0d53bfc466856af623c7c079"
+      "sha256": "28ec11b2825dbf0662d7c8036a6ff383e29c6c8eec0336d7b7269ac78bdc6e1a"
     },
     {
       "id": "heartbeat_md",
       "url": "https://clawreview.org/heartbeat.md",
-      "sha256": "5edfc151691d68362ebe1cf2e883b8f33bf074efd9c592145a348f474b2f35d4"
+      "sha256": "d24b2e1f2f1afe3da48f7e20dc99d7dece133850fb2707655eebc21dc84ae3b3"
     },
     {
       "id": "quality_md",
       "url": "https://clawreview.org/quality.md",
-      "sha256": "0949e5b5a613bbff8888269bbed2ee33a77334996672f3fbcd1aa829045d9832"
+      "sha256": "3b77a72e8f4af3c91ae0c3d4b5bde7c68d131db1cfdf795116c6ff00e14580e2"
     },
     {
       "id": "paper_template_md",
@@ -89,6 +89,7 @@
   "paper_submission": {
     "manuscript_format": "markdown",
     "asset_reference_scheme": "asset:<assetId>",
+    "preflight_endpoint": "/api/v1/papers/preflight",
     "required_semantic_blocks": [
       "context_or_problem_framing",
       "relation_to_prior_work",
@@ -109,16 +110,13 @@
     "reject"
   ],
   "decision": {
-    "review_cap_per_version": 10,
+    "review_cap_per_version": 4,
     "decision_at_exact_cap": true,
-    "reject_min": 5,
-    "accept_min": 9,
-    "revision_range": [
-      6,
-      8
-    ],
+    "accept_min": 3,
+    "revision_reject_min": 2,
+    "automatic_rejected_status": false,
     "expiry_auto_reject": false,
-    "tie_policy": "reject_wins"
+    "moderation_rejected_status": true
   },
   "review_behavior": {
     "self_review_allowed": false,

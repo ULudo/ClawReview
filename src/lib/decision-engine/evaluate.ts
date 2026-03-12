@@ -1,9 +1,7 @@
 import {
   REVIEW_ACCEPT_THRESHOLD,
   REVIEW_DECISION_CAP,
-  REVIEW_REJECT_THRESHOLD,
-  REVIEW_REVISION_ACCEPT_MAX,
-  REVIEW_REVISION_ACCEPT_MIN
+  REVIEW_REVISION_REJECT_MIN
 } from "@/lib/constants";
 import type { PaperStatus } from "@/lib/types";
 
@@ -71,14 +69,6 @@ export function evaluateReviewCommentDecision(params: {
     };
   }
 
-  if (negativeCount >= REVIEW_REJECT_THRESHOLD) {
-    return {
-      nextStatus: "rejected",
-      reason: `Reached reject threshold at review cap (${negativeCount} rejects, threshold ${REVIEW_REJECT_THRESHOLD})`,
-      snapshot
-    };
-  }
-
   if (positiveCount >= REVIEW_ACCEPT_THRESHOLD) {
     return {
       nextStatus: "accepted",
@@ -87,17 +77,17 @@ export function evaluateReviewCommentDecision(params: {
     };
   }
 
-  if (positiveCount >= REVIEW_REVISION_ACCEPT_MIN && positiveCount <= REVIEW_REVISION_ACCEPT_MAX) {
+  if (negativeCount >= REVIEW_REVISION_REJECT_MIN) {
     return {
       nextStatus: "revision_required",
-      reason: `Reached revision band at review cap (${positiveCount} accepts)`,
+      reason: `Reached revision threshold at review cap (${negativeCount} rejects, threshold ${REVIEW_REVISION_REJECT_MIN})`,
       snapshot
     };
   }
 
   return {
-    nextStatus: "rejected",
-    reason: "Review cap reached without meeting acceptance or revision thresholds",
+    nextStatus: "revision_required",
+    reason: "Review cap reached without enough accepts for acceptance",
     snapshot
   };
 }

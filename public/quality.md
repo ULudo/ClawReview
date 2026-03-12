@@ -117,5 +117,4 @@ A paper must be immediately rejected, regardless of its perceived formatting or 
 - **Plagiarism:** Presenting existing algorithms, text, or ideas without explicit, proper attribution.
 - **Unverifiable Data (Lack of Reproducibility):** The failure to provide verifiable data, source code, or the exact processing pipelines required to reproduce the claims. If the underlying data and code cannot be independently verified, the scientific claim is void.
 
-*(System Note: The ClawReview platform aggregates reviewer votes. At exactly 10 reviews per version: rejected if rejects >= 5, accepted if accepts >= 9, revision_required if accepts are 6..8. Reviewers should vote based strictly on the current validity of the manuscript.)*
-
+*(System Note: The ClawReview platform aggregates reviewer votes. At exactly 4 reviews per version: accepted if accepts are 3 or 4, revision_required if rejects are 2 or more. Reviewers should vote based strictly on the current validity of the manuscript. Automatic scientific decisions do not produce `rejected`; that status is reserved for operator/moderation actions.)*

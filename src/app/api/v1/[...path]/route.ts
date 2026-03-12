@@ -12,11 +12,13 @@ import {
   unauthorized
 } from "@/lib/api-response";
 import {
+  ABSTRACT_MAX_WORDS,
   ALLOWED_ATTACHMENT_EXT,
   ALLOWED_ATTACHMENT_MIME,
   HUMAN_EMAIL_CODE_TTL_MS,
   MAX_ATTACHMENT_BYTES,
   MAX_ATTACHMENT_COUNT_PER_PAPER,
+  PAPER_SEMANTIC_BLOCK_MIN_BODY_CHARS,
   PAPER_MANUSCRIPT_MAX_SOURCE_CHARS,
   PAPER_MANUSCRIPT_MAX_WORDS,
   PAPER_MANUSCRIPT_MIN_WORDS,
@@ -25,7 +27,13 @@ import {
 } from "@/lib/constants";
 import { ERROR_CODES } from "@/lib/error-codes";
 import { sendVerificationEmail } from "@/lib/email/send-verification-email";
-import { getManuscriptMetrics } from "@/lib/manuscript";
+import {
+  countTextWords,
+  findSemanticBlockCoverage,
+  getManuscriptMetrics,
+  getMissingSemanticBlocks,
+  REQUIRED_SEMANTIC_BLOCKS
+} from "@/lib/manuscript";
 import {
   agentClaimRequestSchema,
   agentRegistrationRequestSchema,
@@ -187,6 +195,18 @@ function zodFieldErrors(error: ZodError): Array<{ field: string; rule: string; e
     rule: issue.code,
     expected: issue.message
   }));
+}
+
+type FieldError = { field: string; rule: string; expected?: string; actual?: unknown };
+
+function appendFieldError(
+  list: FieldError[],
+  field: string,
+  rule: string,
+  expected?: string,
+  actual?: unknown
+) {
+  list.push({ field, rule, expected, actual });
 }
 
 function pickPaperValidationCode(error: ZodError) {
@@ -559,6 +579,187 @@ function validateReferencedAttachments(
     })),
     hint: "Upload the PNG, complete the asset, then include every referenced asset id in attachment_asset_ids."
   });
+}
+
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((entry) => typeof entry === "string");
+}
+
+type RawPaperPayload = {
+  publisherAgentId?: string;
+  title?: string;
+  abstract?: string;
+  domains: string[];
+  keywords: string[];
+  claimTypes: string[];
+  attachmentAssetIds: string[];
+  sourceRepoUrl?: string;
+  sourceRef?: string;
+  manuscript?: { format: "markdown"; source: string };
+};
+
+function getRawPaperPayload(input: unknown): RawPaperPayload {
+  if (!isRecord(input)) {
+    return {
+      domains: [],
+      keywords: [],
+      claimTypes: [],
+      attachmentAssetIds: []
+    };
+  }
+  const manuscript = isRecord(input.manuscript) && input.manuscript.format === "markdown" && typeof input.manuscript.source === "string"
+    ? { format: "markdown" as const, source: input.manuscript.source }
+    : undefined;
+
+  return {
+    publisherAgentId: typeof input.publisher_agent_id === "string" ? input.publisher_agent_id : undefined,
+    title: typeof input.title === "string" ? input.title : undefined,
+    abstract: typeof input.abstract === "string" ? input.abstract : undefined,
+    domains: isStringArray(input.domains) ? input.domains : [],
+    keywords: isStringArray(input.keywords) ? input.keywords : [],
+    claimTypes: isStringArray(input.claim_types) ? input.claim_types : [],
+    attachmentAssetIds: isStringArray(input.attachment_asset_ids) ? input.attachment_asset_ids : [],
+    sourceRepoUrl: typeof input.source_repo_url === "string" ? input.source_repo_url : undefined,
+    sourceRef: typeof input.source_ref === "string" ? input.source_ref : undefined,
+    manuscript
+  };
+}
+
+function mergePaperValidationDiagnostics(
+  baseErrors: FieldError[],
+  extraErrors: FieldError[]
+) {
+  const merged = [...baseErrors];
+  const seen = new Set(merged.map((entry) => `${entry.field}|${entry.rule}|${entry.expected ?? ""}|${String(entry.actual ?? "")}`));
+
+  for (const entry of extraErrors) {
+    const key = `${entry.field}|${entry.rule}|${entry.expected ?? ""}|${String(entry.actual ?? "")}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    merged.push(entry);
+  }
+
+  return merged;
+}
+
+function buildPaperValidationReport(params: {
+  store: Awaited<ReturnType<typeof getRuntimeStore>>;
+  agentId: string;
+  rawPayload: unknown;
+  parsedPayload: ReturnType<typeof paperSubmissionRequestSchema.safeParse>;
+}) {
+  const raw = getRawPaperPayload(params.rawPayload);
+  const fieldErrors = params.parsedPayload.success ? [] : zodFieldErrors(params.parsedPayload.error);
+  const extraFieldErrors: FieldError[] = [];
+
+  const abstractWordCount = raw.abstract ? countTextWords(raw.abstract) : 0;
+  const manuscriptMetrics = raw.manuscript ? getManuscriptMetrics(raw.manuscript.source) : null;
+  const semanticCoverage = raw.manuscript ? findSemanticBlockCoverage(raw.manuscript.source) : [];
+  const missingSemanticBlocks = raw.manuscript ? getMissingSemanticBlocks(raw.manuscript.source) : REQUIRED_SEMANTIC_BLOCKS;
+  const semanticBlocks = REQUIRED_SEMANTIC_BLOCKS.map((block) => {
+    const coverage = semanticCoverage.find((entry) => entry.block.key === block.key);
+    return {
+      key: block.key,
+      label: block.label,
+      detected: Boolean(coverage),
+      heading: coverage?.section.heading ?? null,
+      body_chars: coverage?.section.bodyChars ?? 0,
+      min_body_chars: PAPER_SEMANTIC_BLOCK_MIN_BODY_CHARS,
+      meets_min_body_chars: coverage ? coverage.section.bodyChars >= PAPER_SEMANTIC_BLOCK_MIN_BODY_CHARS : false
+    };
+  });
+
+  const domainValidation = raw.domains.length ? validateKnownDomainsWithStore(params.store, raw.domains) : { valid: true, unknown: [] as string[] };
+  if (raw.publisherAgentId && raw.publisherAgentId !== params.agentId) {
+    appendFieldError(extraFieldErrors, "publisher_agent_id", "signed_agent_mismatch", "signed agent id", raw.publisherAgentId);
+  }
+  if (!domainValidation.valid) {
+    for (const domain of domainValidation.unknown) {
+      appendFieldError(extraFieldErrors, "domains", "unknown_domain", "known domain id", domain);
+    }
+  }
+
+  let duplicateVersionId: string | null = null;
+  if (raw.manuscript?.source) {
+    const duplicate = params.store.findPaperVersionByExactManuscript(raw.manuscript.source);
+    if (duplicate) {
+      duplicateVersionId = duplicate.id;
+      appendFieldError(extraFieldErrors, "manuscript.source", "duplicate_exact", "unique manuscript source", duplicate.id);
+    }
+  }
+
+  const attachmentChecks = raw.attachmentAssetIds.map((assetId) => {
+    const asset = params.store.getAsset(assetId);
+    const ownedByAgent = asset?.ownerAgentId === params.agentId;
+    const completed = asset?.status === "completed";
+    return {
+      asset_id: assetId,
+      exists: Boolean(asset),
+      owned_by_agent: ownedByAgent,
+      completed,
+      status: asset?.status ?? null
+    };
+  });
+
+  const attachmentValidation = params.store.validateAttachmentAssets(params.agentId, raw.attachmentAssetIds);
+  if ("error" in attachmentValidation) {
+    const assetId = attachmentValidation.assetId ?? null;
+    if (attachmentValidation.error === "Asset not found") {
+      appendFieldError(extraFieldErrors, "attachment_asset_ids", "asset_not_found", "completed asset id owned by signed agent", assetId);
+    } else if (attachmentValidation.error === "Asset is not owned by agent") {
+      appendFieldError(extraFieldErrors, "attachment_asset_ids", "asset_not_owned", "asset owned by signed agent", assetId);
+    } else if (attachmentValidation.error === "Asset not completed") {
+      appendFieldError(extraFieldErrors, "attachment_asset_ids", "asset_not_completed", "completed asset", assetId);
+    } else if (attachmentValidation.error === "Duplicate asset id") {
+      appendFieldError(extraFieldErrors, "attachment_asset_ids", "duplicate_asset_id", "unique asset ids");
+    }
+  }
+
+  const unresolvedAssetReferences = manuscriptMetrics
+    ? manuscriptMetrics.referencedAssetIds.filter((assetId) => !raw.attachmentAssetIds.includes(assetId))
+    : [];
+  unresolvedAssetReferences.forEach((assetId) => {
+    appendFieldError(extraFieldErrors, "attachment_asset_ids", "missing_asset_reference", `include ${assetId}`, "missing");
+  });
+
+  const codeLinksRequired = raw.claimTypes.some((claimType) => ["empirical", "system", "dataset", "benchmark"].includes(claimType));
+  const mergedFieldErrors = mergePaperValidationDiagnostics(fieldErrors, extraFieldErrors);
+
+  return {
+    ok: mergedFieldErrors.length === 0,
+    validation_scope: "structural_only" as const,
+    message: "Submission validation checks structural and policy requirements only. It does not guarantee scientific quality or acceptance.",
+    field_errors: mergedFieldErrors,
+    abstract: {
+      word_count: abstractWordCount,
+      max_words: ABSTRACT_MAX_WORDS,
+      ok: raw.abstract != null && abstractWordCount <= ABSTRACT_MAX_WORDS
+    },
+    manuscript: {
+      format: raw.manuscript?.format ?? null,
+      word_count: manuscriptMetrics?.wordCount ?? 0,
+      word_min: PAPER_MANUSCRIPT_MIN_WORDS,
+      word_max: PAPER_MANUSCRIPT_MAX_WORDS,
+      source_chars: manuscriptMetrics?.sourceChars ?? 0,
+      source_chars_max: PAPER_MANUSCRIPT_MAX_SOURCE_CHARS,
+      referenced_asset_ids: manuscriptMetrics?.referencedAssetIds ?? [],
+      duplicate_exact_version_id: duplicateVersionId,
+      semantic_blocks: semanticBlocks,
+      missing_semantic_blocks: missingSemanticBlocks.map((block) => block.label)
+    },
+    attachments: {
+      declared_asset_ids: raw.attachmentAssetIds,
+      count: raw.attachmentAssetIds.length,
+      max_count: MAX_ATTACHMENT_COUNT_PER_PAPER,
+      checks: attachmentChecks,
+      unresolved_asset_references: unresolvedAssetReferences
+    },
+    code_requirements: {
+      required: codeLinksRequired,
+      source_repo_url_present: Boolean(raw.sourceRepoUrl),
+      source_ref_present: Boolean(raw.sourceRef)
+    }
+  };
 }
 
 async function publicPaperView(paperId: string) {
@@ -1361,6 +1562,25 @@ export async function POST(req: NextRequest) {
         reverified: false,
         message: "Key-only protocol active. No external manifest revalidation."
       });
+    }
+
+    if (segments.length === 2 && segments[0] === "papers" && segments[1] === "preflight") {
+      const signed = await requireSignedAgentRequest(req, bodyText);
+      if (!signed.ok) return signed.response;
+      const agent = signed.agent;
+      if (!agent) return badRequest("Unsigned dev mode cannot preflight papers", undefined, { errorCode: ERROR_CODES.badRequest });
+      const signedRateLimit = applyCommonSignedWriteLimits(store, agent);
+      if (signedRateLimit) return signedRateLimit;
+
+      const rawPayload = parseJsonBody<unknown>(bodyText || "{}");
+      const parsedBody = paperSubmissionRequestSchema.safeParse(rawPayload);
+      const report = buildPaperValidationReport({
+        store,
+        agentId: agent.id,
+        rawPayload,
+        parsedPayload: parsedBody
+      });
+      return ok(report);
     }
 
     if (segments.length === 1 && segments[0] === "papers") {

@@ -226,7 +226,7 @@ describe("paper review comment guardrails", () => {
     expect("error" in second ? second.error : undefined).toBe("Review duplicate human on version");
   });
 
-  it("rejects the 11th review attempt due to review cap", () => {
+  it("rejects the 5th review attempt due to review cap", () => {
     const store = new MemoryStore();
     const publisher = createActiveAgent(store, 10);
     const paper = store.createPaperWithVersion({
@@ -244,14 +244,14 @@ describe("paper review comment guardrails", () => {
       attachmentAssetIds: []
     });
 
-    for (let i = 0; i < 10; i += 1) {
+    for (let i = 0; i < 4; i += 1) {
       const reviewer = createActiveAgent(store, 20 + i);
       const result = store.submitPaperReviewComment({
         paperId: paper.paper.id,
         paperVersionId: paper.version.id,
         reviewerAgentId: reviewer.id,
         bodyMarkdown: `Review ${i}: ${"H".repeat(220)}`,
-        recommendation: i < 6 ? "accept" : "reject"
+        recommendation: i < 3 ? "accept" : "reject"
       });
       expect("error" in result).toBe(false);
     }
