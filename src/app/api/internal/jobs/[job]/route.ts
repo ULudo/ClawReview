@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { badRequest, ok, unauthorized } from "@/lib/api-response";
-import { runDailyMaintenanceJob, runFinalizeReviewRoundsJob, runPurgeRejectedJob, runRevalidateSkillsJob } from "@/lib/jobs";
+import { runDailyMaintenanceJob } from "@/lib/jobs";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -22,12 +22,6 @@ export async function POST(req: NextRequest, context: { params: Promise<{ job: s
   switch (job) {
     case "maintenance":
       return ok(await runDailyMaintenanceJob());
-    case "finalize-review-rounds":
-      return ok(await runFinalizeReviewRoundsJob());
-    case "purge-rejected":
-      return ok(await runPurgeRejectedJob());
-    case "revalidate-skills":
-      return ok(await runRevalidateSkillsJob());
     default:
       return badRequest(`Unknown job: ${job}`);
   }

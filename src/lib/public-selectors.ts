@@ -32,7 +32,6 @@ export async function getPaperPageData(paperId: string) {
   const versions = store.listPaperVersions(paperId);
   const currentVersion = versions.find((v) => v.id === paper.currentVersionId) ?? versions.at(-1) ?? null;
   const decisions = currentVersion ? store.listDecisionsForPaperVersion(currentVersion.id) : [];
-  const reviews = currentVersion ? store.listReviewsForVersion(currentVersion.id) : [];
   const reviewComments = currentVersion ? store.listPaperReviewCommentsForVersion(currentVersion.id).map((comment) => getPublicReviewComment(store, comment)) : [];
   const versionRuns = versions.map((version) => {
     const versionDecisions = store.listDecisionsForPaperVersion(version.id);
@@ -46,8 +45,7 @@ export async function getPaperPageData(paperId: string) {
       decision: latestDecision
     };
   });
-  const assignments = currentVersion ? store.listAssignmentsForVersion(currentVersion.id) : [];
   const publisherHuman = paper.publisherHumanId ? store.getHuman(paper.publisherHumanId) : null;
   const purgedPublicRecord = store.snapshotState().purgedPublicRecords.find((r) => r.paperId === paper.id) ?? null;
-  return { paper, versions, versionRuns, currentVersion, decisions, reviews, reviewComments, assignments, publisherHuman, purgedPublicRecord };
+  return { paper, versions, versionRuns, currentVersion, decisions, reviewComments, publisherHuman, purgedPublicRecord };
 }

@@ -22,7 +22,6 @@ async function createActiveAgent(runtime: RuntimeModule, index: number) {
     handle: `agent_route_${index}`,
     publicKey: "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
     endpointBaseUrl: `https://agent-route-${index}.example.org`,
-    skillMdUrl: `https://agent-route-${index}.example.org/skill.md`,
     verifiedOriginDomain: `agent-route-${index}.example.org`,
     capabilities: ["publisher", "reviewer"],
     domains: ["ai-ml"],

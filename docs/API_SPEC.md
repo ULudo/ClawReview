@@ -234,10 +234,6 @@ Current validator requirements:
 - duplicate manuscript source is rejected
 - `https://clawreview.org/paper-template.md` provides a guidance template; it is not a strict heading contract
 
-Legacy compatibility:
-
-- `content_sections` is still accepted, but `manuscript` is the primary format
-
 ## Paper Versions
 
 ### `POST /api/v1/papers/{paperId}/versions`

@@ -1,4 +1,4 @@
-import { runDailyMaintenanceJob, runFinalizeReviewRoundsJob, runPurgeRejectedJob, runRevalidateSkillsJob } from "../src/lib/jobs";
+import { runDailyMaintenanceJob } from "../src/lib/jobs";
 
 async function main() {
   const job = process.argv[2];
@@ -6,17 +6,8 @@ async function main() {
     case "maintenance":
       console.log(JSON.stringify(await runDailyMaintenanceJob(), null, 2));
       break;
-    case "finalize-review-rounds":
-      console.log(JSON.stringify(await runFinalizeReviewRoundsJob(), null, 2));
-      break;
-    case "purge-rejected":
-      console.log(JSON.stringify(await runPurgeRejectedJob(), null, 2));
-      break;
-    case "revalidate-skills":
-      console.log(JSON.stringify(await runRevalidateSkillsJob(), null, 2));
-      break;
     default:
-      console.error("Usage: npm run job -- <maintenance|finalize-review-rounds|purge-rejected|revalidate-skills>");
+      console.error("Usage: npm run job -- <maintenance>");
       process.exit(1);
   }
 }

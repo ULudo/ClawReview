@@ -470,17 +470,11 @@ function isClaimRequestFromClaimPage(req: NextRequest, claimToken: string) {
 }
 
 function normalizePaperManuscript(input: {
-  content_sections?: Record<string, string>;
   manuscript?: { format: "markdown"; source: string };
   attachment_asset_ids?: string[];
 }) {
   const manuscript = input.manuscript;
-  const fallbackContentSections =
-    input.content_sections && Object.keys(input.content_sections).length > 0
-      ? input.content_sections
-      : manuscript
-        ? { markdown_source: manuscript.source }
-        : {};
+  const fallbackContentSections: Record<string, string> = manuscript ? { markdown_source: manuscript.source } : {};
 
   return {
     contentSections: fallbackContentSections,
@@ -713,12 +707,6 @@ export async function GET(req: NextRequest) {
       return ok({ agent });
     }
 
-    if (segments.length === 3 && segments[0] === "agents" && segments[2] === "skill-manifest") {
-      const manifest = store.getLatestAgentManifest(segments[1]);
-      if (!manifest) return notFound("Skill manifest not found");
-      return ok({ manifest });
-    }
-
     if (segments.length === 3 && segments[0] === "agents" && segments[1] === "claim") {
       const claimToken = decodeURIComponent(segments[2]);
       const ticket = store.getAgentClaimTicketByToken(claimToken);
@@ -755,10 +743,6 @@ export async function GET(req: NextRequest) {
           }
         }
       });
-    }
-
-    if (segments.length === 4 && segments[0] === "agents" && segments[2] === "skill-manifest" && segments[3] === "history") {
-      return ok({ history: store.getAgentManifestHistory(segments[1]) });
     }
 
     if (segments.length === 3 && segments[0] === "assets" && segments[2] === "content") {
@@ -1187,7 +1171,6 @@ export async function POST(req: NextRequest) {
         });
       }
 
-      const skillMdUrl = `key://${effective.agent_handle.toLowerCase()}`;
       const verifiedOriginDomain = payload.endpoint_base_url
         ? parseHostname(payload.endpoint_base_url)
         : effective.agent_handle.toLowerCase();
@@ -1196,7 +1179,6 @@ export async function POST(req: NextRequest) {
         handle: effective.agent_handle,
         publicKey: effective.public_key,
         endpointBaseUrl: effective.endpoint_base_url,
-        skillMdUrl,
         verifiedOriginDomain,
         capabilities: effective.capabilities,
         domains: effective.domains,
@@ -1214,39 +1196,13 @@ export async function POST(req: NextRequest) {
         return conflict("Agent registration conflict", { errorCode: ERROR_CODES.conflict });
       }
       const { agent } = registered;
-
-      const manifestSnapshotInput = {
-        agentId: agent.id,
-        skillMdUrl,
-        raw: `# Key Registration Manifest\nmode: key_only\nagent_handle: ${effective.agent_handle}\n`,
-        hash: sha256Hex(JSON.stringify({
-          mode: "key_only",
-          agent_handle: effective.agent_handle,
-          public_key: effective.public_key,
-          endpoint_base_url: effective.endpoint_base_url,
-          domains: effective.domains
-        })),
-        frontMatter: {
-          schema: "clawreview-skill/v1" as const,
-          agent_name: effective.agent_name,
-          agent_handle: effective.agent_handle,
-          public_key: effective.public_key,
-          protocol_version: "v1" as const,
-          capabilities: effective.capabilities,
-          domains: effective.domains,
-          endpoint_base_url: effective.endpoint_base_url,
-          clawreview_compatibility: true as const
-        },
-        requiredSections: {}
-      };
-      const snapshot = store.saveAgentManifestSnapshot({
-        agentId: manifestSnapshotInput.agentId,
-        skillMdUrl: manifestSnapshotInput.skillMdUrl,
-        raw: manifestSnapshotInput.raw,
-        hash: manifestSnapshotInput.hash,
-        frontMatter: manifestSnapshotInput.frontMatter,
-        requiredSections: manifestSnapshotInput.requiredSections
-      });
+      agent.currentSkillManifestHash = sha256Hex(JSON.stringify({
+        mode: "key_only",
+        agent_handle: effective.agent_handle,
+        public_key: effective.public_key,
+        endpoint_base_url: effective.endpoint_base_url,
+        domains: effective.domains
+      }));
 
       const challenge = store.createAgentVerificationChallenge(agent.id);
       const claimTicket = store.createAgentClaimTicket(agent.id);
@@ -1263,10 +1219,6 @@ export async function POST(req: NextRequest) {
           id: claimTicket.id,
           expiresAt: claimTicket.expiresAt,
           claimUrl: `${appBaseUrl}/claim/${encodeURIComponent(claimTicket.token)}`
-        },
-        manifest: {
-          hash: snapshot.hash,
-          fetchedAt: snapshot.fetchedAt
         }
       };
       return await respondIdempotent(req, undefined, 201, responseBody);

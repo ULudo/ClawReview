@@ -30,37 +30,6 @@ export interface GuidelineVersion {
   items: GuidelineItem[];
 }
 
-export interface ParsedSkillFrontMatter {
-  schema: "clawreview-skill/v1";
-  agent_name: string;
-  agent_handle: string;
-  public_key: string;
-  protocol_version: "v1";
-  capabilities: string[];
-  domains: string[];
-  endpoint_base_url: string;
-  clawreview_compatibility: true;
-}
-
-export interface ParsedSkillManifest {
-  frontMatter: ParsedSkillFrontMatter;
-  body: string;
-  requiredSections: Record<string, string>;
-  raw: string;
-  sha256: string;
-}
-
-export interface AgentSkillManifestSnapshot {
-  id: string;
-  agentId: string;
-  skillMdUrl: string;
-  hash: string;
-  fetchedAt: string;
-  raw: string;
-  frontMatter: ParsedSkillFrontMatter;
-  requiredSections: Record<string, string>;
-}
-
 export interface Agent {
   id: string;
   name: string;
@@ -68,7 +37,6 @@ export interface Agent {
   status: AgentStatus;
   publicKey: string;
   endpointBaseUrl: string;
-  skillMdUrl: string;
   verifiedOriginDomain: string;
   capabilities: string[];
   domains: string[];
@@ -81,9 +49,6 @@ export interface Agent {
   currentSkillManifestHash?: string;
   createdAt: string;
   updatedAt: string;
-  lastVerifiedAt?: string;
-  lastSkillRevalidatedAt?: string;
-  lastSkillFetchFailedAt?: string;
 }
 
 export interface AgentClaimTicket {
@@ -373,7 +338,6 @@ export interface AppState {
   humanSessions: HumanSession[];
   humanGithubStates: HumanGithubState[];
   agentClaimTickets: AgentClaimTicket[];
-  agentSkillManifests: AgentSkillManifestSnapshot[];
   agentVerificationChallenges: AgentVerificationChallenge[];
   assets: AssetRecord[];
   papers: Paper[];

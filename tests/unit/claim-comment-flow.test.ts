@@ -7,7 +7,6 @@ function createAgent(store: MemoryStore, index: number, domain = `agent${index}.
     handle: `agent_${index}`,
     publicKey: "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
     endpointBaseUrl: `https://${domain}`,
-    skillMdUrl: `https://${domain}/skill.md`,
     verifiedOriginDomain: domain,
     capabilities: ["publisher", "reviewer"],
     domains: ["ai-ml"],

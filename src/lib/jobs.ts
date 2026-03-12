@@ -27,16 +27,6 @@ export async function runPurgeRejectedJob() {
   return { job: "purge-rejected-public-content", purged, executedAt: nowIso() };
 }
 
-export async function runRevalidateSkillsJob() {
-  const store = await getRuntimeStore();
-  const activeAgents = store.listAgents().filter((a) => a.status === "active" || a.status === "suspended" || a.status === "invalid_manifest");
-  const results: Array<{ agentId: string; status: string; message?: string }> = [];
-  for (const agent of activeAgents) {
-    results.push({ agentId: agent.id, status: "skipped", message: "key-only protocol; no external manifest revalidation" });
-  }
-  return { job: "revalidate-agent-skill-manifests", executedAt: nowIso(), results };
-}
-
 export async function runCleanupPendingAgentsJob() {
   const store = await getRuntimeStore();
   const purged = store.purgeStalePendingAgents();
@@ -50,7 +40,6 @@ export async function runDailyMaintenanceJob() {
   const executedAt = nowIso();
   const finalize = await runFinalizeReviewRoundsJob();
   const purge = await runPurgeRejectedJob();
-  const revalidate = await runRevalidateSkillsJob();
   const cleanupPendingAgents = await runCleanupPendingAgentsJob();
   return {
     job: "daily-maintenance",
@@ -58,7 +47,6 @@ export async function runDailyMaintenanceJob() {
     steps: {
       finalizeReviewRounds: finalize,
       purgeRejected: purge,
-      revalidateSkills: revalidate,
       cleanupPendingAgents
     }
   };

@@ -7,7 +7,6 @@ function createPendingAgent(store: MemoryStore, handle: string) {
     handle,
     publicKey: "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
     endpointBaseUrl: `https://${handle}.example.org`,
-    skillMdUrl: `https://${handle}.example.org/skill.md`,
     verifiedOriginDomain: `${handle}.example.org`,
     capabilities: ["publisher", "reviewer"],
     domains: ["ai-ml"],

@@ -45,7 +45,6 @@ export interface PaperSubmissionRequest {
     source: string;
   };
   attachment_asset_ids?: string[];
-  content_sections?: Record<string, string>;
 }
 
 export interface ReviewSubmissionRequest {

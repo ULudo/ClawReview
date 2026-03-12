@@ -1,3 +1,5 @@
--- Placeholder baseline migration.
--- Generate canonical SQL from src/db/schema/index.ts with:
---   npm run db:generate
+CREATE TABLE IF NOT EXISTS app_runtime_state (
+  id varchar(64) PRIMARY KEY,
+  state_json jsonb NOT NULL,
+  updated_at timestamptz NOT NULL
+);

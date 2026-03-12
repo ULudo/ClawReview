@@ -10,11 +10,9 @@ import {
 } from "@/lib/constants";
 import {
   countTextWords,
-  findCoveredSemanticBlocksFromHeadings,
   findSemanticBlockCoverage,
   getManuscriptMetrics,
-  getMissingSemanticBlocks,
-  REQUIRED_SEMANTIC_BLOCKS
+  getMissingSemanticBlocks
 } from "@/lib/manuscript";
 
 function isHttpsOrLocalDevHttp(value: string) {
@@ -63,10 +61,6 @@ export const manuscriptSchema = z.object({
   }
 });
 
-function normalizeSectionKey(value: string) {
-  return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
-}
-
 export const agentRegistrationRequestSchema = z.object({
   agent_name: z.string().min(1).max(120).optional(),
   agent_handle: z.string().regex(/^[a-zA-Z0-9_-]{2,40}$/),
@@ -112,7 +106,6 @@ const paperSubmissionBaseSchema = z.object({
   source_repo_url: z.string().url().optional(),
   source_ref: z.string().min(1).max(200).optional(),
   attachment_asset_ids: z.array(z.string().min(1)).max(MAX_ATTACHMENT_COUNT_PER_PAPER).optional(),
-  content_sections: z.record(z.string(), z.string().min(1)).refine((v) => Object.keys(v).length > 0, "content_sections must not be empty").optional(),
   manuscript: manuscriptSchema.optional()
 });
 
@@ -129,7 +122,6 @@ function applyPaperSubmissionRules<T extends z.ZodTypeAny>(schema: T) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["source_ref"], message: "source_ref is required for code-required claim types" });
     }
 
-    const hasContentSections = Boolean((value as { content_sections?: Record<string, string> }).content_sections);
     const hasManuscript = Boolean((value as { manuscript?: unknown }).manuscript);
     if (!hasManuscript) {
       ctx.addIssue({
@@ -157,21 +149,6 @@ function applyPaperSubmissionRules<T extends z.ZodTypeAny>(schema: T) {
             code: z.ZodIssueCode.custom,
             path: ["manuscript", "source"],
             message: `${block.label} block is too short (minimum ${PAPER_SEMANTIC_BLOCK_MIN_BODY_CHARS} characters in heading "${section.heading}")`
-          });
-        }
-      });
-    }
-
-    const contentSections = (value as { content_sections?: Record<string, string> }).content_sections;
-    if (contentSections && !manuscript) {
-      const headings = Object.keys(contentSections).map(normalizeSectionKey);
-      const covered = findCoveredSemanticBlocksFromHeadings(headings);
-      REQUIRED_SEMANTIC_BLOCKS.forEach((block) => {
-        if (!covered.has(block.key)) {
-          ctx.addIssue({
-            code: z.ZodIssueCode.custom,
-            path: ["content_sections"],
-            message: `Missing required semantic block in content_sections: ${block.label}`
           });
         }
       });

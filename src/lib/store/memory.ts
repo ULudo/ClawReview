@@ -21,7 +21,6 @@ import { createDefaultGuideline, DEFAULT_DOMAINS } from "@/lib/seed-data";
 import type {
   Agent,
   AgentClaimTicket,
-  AgentSkillManifestSnapshot,
   AgentVerificationChallenge,
   AssetRecord,
   AppState,
@@ -46,7 +45,6 @@ type NewAgentParams = {
   handle: string;
   publicKey: string;
   endpointBaseUrl: string;
-  skillMdUrl: string;
   verifiedOriginDomain: string;
   capabilities: string[];
   domains: string[];
@@ -72,7 +70,6 @@ export class MemoryStore {
       humanSessions: baseState.humanSessions ?? [],
       humanGithubStates: baseState.humanGithubStates ?? [],
       agentClaimTickets: baseState.agentClaimTickets ?? [],
-      agentSkillManifests: baseState.agentSkillManifests ?? [],
       agentVerificationChallenges: baseState.agentVerificationChallenges ?? [],
       assets: baseState.assets ?? [],
       papers: baseState.papers ?? [],
@@ -350,16 +347,6 @@ export class MemoryStore {
     return { human };
   }
 
-  getAgentManifestHistory(agentId: string) {
-    return this.state.agentSkillManifests
-      .filter((m) => m.agentId === agentId)
-      .sort((a, b) => new Date(b.fetchedAt).getTime() - new Date(a.fetchedAt).getTime());
-  }
-
-  getLatestAgentManifest(agentId: string) {
-    return this.getAgentManifestHistory(agentId)[0] ?? null;
-  }
-
   findAgentByHandle(handle: string) {
     return this.state.agents.find((a) => a.handle === handle) ?? null;
   }
@@ -370,8 +357,6 @@ export class MemoryStore {
     }
     if (agent.humanClaimedAt && agent.challengeVerifiedAt) {
       agent.status = "active";
-      agent.lastVerifiedAt = agent.challengeVerifiedAt;
-      agent.lastSkillRevalidatedAt = nowIso();
       return;
     }
     agent.status = agent.humanClaimedAt ? "pending_agent_verification" : "pending_claim";
@@ -392,7 +377,6 @@ export class MemoryStore {
       existing.name = params.name;
       existing.publicKey = params.publicKey;
       existing.endpointBaseUrl = params.endpointBaseUrl;
-      existing.skillMdUrl = params.skillMdUrl;
       existing.verifiedOriginDomain = params.verifiedOriginDomain;
       existing.capabilities = [...params.capabilities];
       existing.domains = [...params.domains];
@@ -403,10 +387,7 @@ export class MemoryStore {
       existing.ownerHumanId = undefined;
       existing.humanClaimedAt = undefined;
       existing.challengeVerifiedAt = undefined;
-      existing.lastVerifiedAt = undefined;
-      existing.lastSkillRevalidatedAt = undefined;
       existing.updatedAt = timestamp;
-      existing.lastSkillFetchFailedAt = undefined;
       agent = existing;
     } else {
       agent = {
@@ -416,7 +397,6 @@ export class MemoryStore {
         status: "pending_claim",
         publicKey: params.publicKey,
         endpointBaseUrl: params.endpointBaseUrl,
-        skillMdUrl: params.skillMdUrl,
         verifiedOriginDomain: params.verifiedOriginDomain,
         capabilities: [...params.capabilities],
         domains: [...params.domains],
@@ -437,35 +417,6 @@ export class MemoryStore {
       metadata: { handle: agent.handle }
     });
     return { agent };
-  }
-
-  saveAgentManifestSnapshot(input: {
-    agentId: string;
-    skillMdUrl: string;
-    raw: string;
-    hash: string;
-    frontMatter: AgentSkillManifestSnapshot["frontMatter"];
-    requiredSections: AgentSkillManifestSnapshot["requiredSections"];
-  }): AgentSkillManifestSnapshot {
-    const snapshot: AgentSkillManifestSnapshot = {
-      id: randomId("manifest"),
-      agentId: input.agentId,
-      skillMdUrl: input.skillMdUrl,
-      hash: input.hash,
-      fetchedAt: nowIso(),
-      raw: input.raw,
-      frontMatter: input.frontMatter,
-      requiredSections: input.requiredSections
-    };
-    this.state.agentSkillManifests.push(snapshot);
-
-    const agent = this.getAgent(input.agentId);
-    if (agent) {
-      agent.currentSkillManifestHash = snapshot.hash;
-      agent.updatedAt = nowIso();
-    }
-
-    return snapshot;
   }
 
   createAgentClaimTicket(agentId: string): AgentClaimTicket | null {
@@ -653,7 +604,6 @@ export class MemoryStore {
     if (!agentIds.length) return [];
     const staleIds = new Set(agentIds);
     this.state.agents = this.state.agents.filter((agent) => !staleIds.has(agent.id));
-    this.state.agentSkillManifests = this.state.agentSkillManifests.filter((manifest) => !staleIds.has(manifest.agentId));
     this.state.agentClaimTickets = this.state.agentClaimTickets.filter((ticket) => !staleIds.has(ticket.agentId));
     this.state.agentVerificationChallenges = this.state.agentVerificationChallenges.filter((challenge) => !staleIds.has(challenge.agentId));
     this.state.requestNonces = this.state.requestNonces.filter((nonce) => !staleIds.has(nonce.agentId));
@@ -1415,43 +1365,6 @@ export class MemoryStore {
     return purged;
   }
 
-  revalidateAgentSkill(agentId: string, snapshot: AgentSkillManifestSnapshot) {
-    const agent = this.getAgent(agentId);
-    if (!agent) return null;
-    agent.currentSkillManifestHash = snapshot.hash;
-    agent.lastSkillRevalidatedAt = nowIso();
-    agent.lastSkillFetchFailedAt = undefined;
-    if (agent.status === "suspended" || agent.status === "invalid_manifest") {
-      this.reconcileAgentActivationStatus(agent);
-    }
-    agent.updatedAt = nowIso();
-    this.audit({
-      actorType: "system",
-      action: "agent.skill.revalidated",
-      targetType: "agent",
-      targetId: agentId,
-      metadata: { skillManifestHash: snapshot.hash }
-    });
-    return agent;
-  }
-
-  markAgentSkillRevalidateFailure(agentId: string, reasonText: string) {
-    const agent = this.getAgent(agentId);
-    if (!agent) return null;
-    const now = nowIso();
-    if (!agent.lastSkillFetchFailedAt) {
-      agent.lastSkillFetchFailedAt = now;
-    }
-    agent.updatedAt = now;
-    this.audit({
-      actorType: "system",
-      action: "agent.skill.revalidate_failed",
-      targetType: "agent",
-      targetId: agentId,
-      reasonText
-    });
-    return agent;
-  }
 }
 
 let store: MemoryStore | null = null;
