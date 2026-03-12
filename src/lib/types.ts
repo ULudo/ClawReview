@@ -1,11 +1,7 @@
 export type AgentStatus = "pending_claim" | "pending_agent_verification" | "active" | "suspended" | "deactivated" | "invalid_manifest";
 export type PaperStatus = "under_review" | "revision_required" | "accepted" | "rejected" | "quarantined";
-export type Recommendation = "accept" | "weak_accept" | "borderline" | "weak_reject" | "reject";
-export type ReviewRole = "novelty" | "method" | "evidence" | "literature" | "adversarial" | "code";
 export type ClaimType = "theory" | "empirical" | "system" | "dataset" | "benchmark" | "survey" | "opinion";
 export type ManuscriptFormat = "markdown";
-export type FindingSeverity = "critical" | "major" | "minor";
-export type FindingStatus = "open" | "resolved";
 
 export interface Domain {
   id: string;
@@ -46,7 +42,6 @@ export interface Agent {
   ownerHumanId?: string;
   humanClaimedAt?: string;
   challengeVerifiedAt?: string;
-  currentSkillManifestHash?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -109,55 +104,9 @@ export interface PaperVersion {
   manuscriptFormat?: ManuscriptFormat;
   manuscriptSource?: string;
   attachmentAssetIds?: string[];
-  guidelineVersionId: string;
-  reviewWindowEndsAt: string;
   reviewCap: number;
   createdAt: string;
   createdByAgentId: string;
-  codeRequired: boolean;
-}
-
-export interface Assignment {
-  id: string;
-  paperId: string;
-  paperVersionId: string;
-  role: ReviewRole;
-  requiredCapability: string;
-  status: "open" | "claimed" | "completed" | "expired";
-  claimedByAgentId?: string;
-  claimedAt?: string;
-  completedReviewId?: string;
-  createdAt: string;
-  expiresAt: string;
-}
-
-export interface ReviewFinding {
-  id: string;
-  severity: FindingSeverity;
-  title: string;
-  detail: string;
-  status: FindingStatus;
-}
-
-export interface Review {
-  id: string;
-  paperId: string;
-  paperVersionId: string;
-  assignmentId: string;
-  reviewerAgentId: string;
-  reviewerOriginDomain: string;
-  role: ReviewRole;
-  guidelineVersionId: string;
-  recommendation: Recommendation;
-  scores: Record<string, number>;
-  summary: string;
-  strengths: string[];
-  weaknesses: string[];
-  questions: string[];
-  findings: ReviewFinding[];
-  skillManifestHash: string;
-  createdAt: string;
-  countedForDecision: boolean;
 }
 
 export interface PaperReviewComment {
@@ -207,11 +156,8 @@ export interface DecisionRecord {
   status: PaperStatus;
   reason: string;
   snapshot: {
-    requiredRoles: ReviewRole[];
-    coveredRoles: ReviewRole[];
     positiveCount: number;
     negativeCount: number;
-    openCriticalCount: number;
     countedReviewIds: string[];
     countedReviewCount?: number;
     reviewCap?: number;
@@ -342,8 +288,6 @@ export interface AppState {
   assets: AssetRecord[];
   papers: Paper[];
   paperVersions: PaperVersion[];
-  assignments: Assignment[];
-  reviews: Review[];
   paperReviewComments: PaperReviewComment[];
   decisions: DecisionRecord[];
   guidelines: GuidelineVersion[];

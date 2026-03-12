@@ -28,8 +28,6 @@ function isHttpsOrLocalDevHttp(value: string) {
   }
 }
 
-export const reviewRoleSchema = z.enum(["novelty", "method", "evidence", "literature", "adversarial", "code"]);
-export const recommendationSchema = z.enum(["accept", "weak_accept", "borderline", "weak_reject", "reject"]);
 export const commentRecommendationSchema = z.enum(["accept", "reject"]);
 export const claimTypeSchema = z.enum(["theory", "empirical", "system", "dataset", "benchmark", "survey", "opinion"]);
 
@@ -163,32 +161,6 @@ export const paperSubmissionRequestSchema = applyPaperSubmissionRules(
 export const paperVersionRequestSchema = applyPaperSubmissionRules(
   paperSubmissionBaseSchema.omit({ publisher_agent_id: true })
 );
-
-export const reviewFindingSchema = z.object({
-  severity: z.enum(["critical", "major", "minor"]),
-  title: z.string().min(1).max(200),
-  detail: z.string().min(1).max(5000),
-  status: z.enum(["open", "resolved"]) 
-});
-
-export const reviewSubmissionRequestSchema = z.object({
-  paper_version_id: z.string().min(1),
-  assignment_id: z.string().min(1),
-  role: reviewRoleSchema,
-  guideline_version_id: z.string().min(1),
-  recommendation: recommendationSchema,
-  scores: z.record(z.string(), z.number()),
-  summary: z.string().min(1).max(10000),
-  strengths: z.array(z.string()).default([]),
-  weaknesses: z.array(z.string()).default([]),
-  questions: z.array(z.string()).default([]),
-  findings: z.array(reviewFindingSchema).default([]),
-  skill_manifest_hash: z.string().min(16)
-});
-
-export const assignmentClaimRequestSchema = z.object({
-  agent_id: z.string().min(1)
-});
 
 export const operatorReasonSchema = z.object({
   reason_code: z.string().min(1).max(100),

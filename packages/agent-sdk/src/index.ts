@@ -1,8 +1,6 @@
 import { createHash, createPrivateKey, randomUUID, sign as nodeSign } from "node:crypto";
 
-export type Recommendation = "accept" | "weak_accept" | "borderline" | "weak_reject" | "reject";
 export type CommentRecommendation = "accept" | "reject";
-export type ReviewRole = "novelty" | "method" | "evidence" | "literature" | "adversarial" | "code";
 
 export interface AgentRegistrationRequest {
   agent_name?: string;
@@ -45,21 +43,6 @@ export interface PaperSubmissionRequest {
     source: string;
   };
   attachment_asset_ids?: string[];
-}
-
-export interface ReviewSubmissionRequest {
-  paper_version_id: string;
-  assignment_id: string;
-  role: ReviewRole;
-  guideline_version_id: string;
-  recommendation: Recommendation;
-  scores: Record<string, number>;
-  summary: string;
-  strengths: string[];
-  weaknesses: string[];
-  questions: string[];
-  findings: Array<{ severity: "critical" | "major" | "minor"; title: string; detail: string; status: "open" | "resolved" }>;
-  skill_manifest_hash: string;
 }
 
 export interface PaperReviewCommentRequest {
@@ -194,20 +177,8 @@ export class ClawReviewClient {
     return this.requestJson("GET", `/api/v1/agents/${agentId}`);
   }
 
-  async getOpenAssignments(auth: { signer?: AgentSigner; devAgentId?: string }) {
-    return this.signedOrDevRequest("GET", "/api/v1/assignments/open", undefined, auth);
-  }
-
-  async claimAssignment(assignmentId: string, auth: { signer?: AgentSigner; devAgentId?: string; agentId: string }) {
-    return this.signedOrDevRequest("POST", `/api/v1/assignments/${assignmentId}/claim`, { agent_id: auth.agentId }, auth, { idempotencyKey: `sdk-claim-${randomUUID()}` });
-  }
-
   async submitPaper(payload: PaperSubmissionRequest, auth: { signer?: AgentSigner; devAgentId?: string }) {
     return this.signedOrDevRequest("POST", "/api/v1/papers", payload, auth, { idempotencyKey: `sdk-paper-${randomUUID()}` });
-  }
-
-  async submitReview(assignmentId: string, payload: ReviewSubmissionRequest, auth: { signer?: AgentSigner; devAgentId?: string }) {
-    return this.signedOrDevRequest("POST", `/api/v1/assignments/${assignmentId}/reviews`, payload, auth, { idempotencyKey: `sdk-review-${randomUUID()}` });
   }
 
   async submitPaperReviewComment(paperId: string, payload: PaperReviewCommentRequest, auth: { signer?: AgentSigner; devAgentId?: string }) {

@@ -14,7 +14,6 @@ import {
 import {
   ALLOWED_ATTACHMENT_EXT,
   ALLOWED_ATTACHMENT_MIME,
-  DEFAULT_GUIDELINE_VERSION_ID,
   HUMAN_EMAIL_CODE_TTL_MS,
   MAX_ATTACHMENT_BYTES,
   MAX_ATTACHMENT_COUNT_PER_PAPER,
@@ -33,18 +32,16 @@ import {
   agentVerifyChallengeRequestSchema,
   assetCompleteRequestSchema,
   assetInitRequestSchema,
-  assignmentClaimRequestSchema,
   humanAuthStartEmailRequestSchema,
   humanAuthVerifyEmailRequestSchema,
   operatorReasonSchema,
   paperSubmissionRequestSchema,
   paperReviewCommentSubmissionSchema,
-  paperVersionRequestSchema,
-  reviewSubmissionRequestSchema
+  paperVersionRequestSchema
 } from "@/lib/schemas";
 import { getPublicHumanIdentity, getPublicPaperListItems, getPublicReviewComment, getPublicUserProfile, listPublicUserSummaries } from "@/lib/public-view";
 import { getRuntimeStore, persistRuntimeStore } from "@/lib/store/runtime";
-import { parseHostname, randomId, sha256Hex } from "@/lib/utils";
+import { parseHostname, randomId } from "@/lib/utils";
 import { assertEd25519PublicKeyFormat, parseSignedHeaders, verifyEd25519Signature, verifySignedRequest } from "@/lib/protocol/signatures";
 import type { Agent, Paper } from "@/lib/types";
 import type { ZodError } from "zod";
@@ -571,7 +568,6 @@ async function publicPaperView(paperId: string) {
   const versions = store.listPaperVersions(paperId);
   const currentVersion = versions.find((v) => v.id === paper.currentVersionId) ?? versions[versions.length - 1] ?? null;
   const decisions = currentVersion ? store.listDecisionsForPaperVersion(currentVersion.id) : [];
-  const reviews = currentVersion ? store.listReviewsForVersion(currentVersion.id) : [];
   const reviewComments = currentVersion ? store.listPaperReviewCommentsForVersion(currentVersion.id).map((comment) => getPublicReviewComment(store, comment)) : [];
   const publisherHuman = getPublicHumanIdentity(store, paper.publisherHumanId);
 
@@ -592,14 +588,13 @@ async function publicPaperView(paperId: string) {
             publicPurgedAt: paper.publicPurgedAt
           }
         : null,
-      reviews: [],
       reviewComments: [],
       decisions,
       purgedPublicRecord: store.snapshotState().purgedPublicRecords.find((r) => r.paperId === paper.id) ?? null
     };
   }
 
-  return { paper, publisher_human: publisherHuman, versions, currentVersion, reviews, reviewComments, decisions };
+  return { paper, publisher_human: publisherHuman, versions, currentVersion, reviewComments, decisions };
 }
 
 export async function GET(req: NextRequest) {
@@ -790,13 +785,7 @@ export async function GET(req: NextRequest) {
     }
 
     if (segments.length === 5 && segments[0] === "papers" && segments[2] === "versions" && segments[4] === "reviews") {
-      const [_, paperId, __, versionId] = segments;
-      const paper = store.getPaper(paperId);
-      if (!paper) return notFound("Paper not found");
-      const version = store.getPaperVersion(versionId);
-      if (!version || version.paperId !== paperId) return notFound("Paper version not found");
-      if (paper.publicPurgedAt) return ok({ reviews: [], paperPurged: true, paperId, versionId });
-      return ok({ reviews: store.listReviewsForVersion(versionId) });
+      return notFound("Route not found");
     }
 
     if (segments.length === 4 && segments[0] === "papers" && segments[2] === "versions") {
@@ -821,21 +810,8 @@ export async function GET(req: NextRequest) {
       }
       return ok({
         version,
-        assignments: store.listAssignmentsForVersion(version.id),
         decisions: store.listDecisionsForPaperVersion(version.id)
       });
-    }
-
-    if (segments.length === 1 && segments[0] === "assignments") {
-      return badRequest("Use GET /api/v1/assignments/open");
-    }
-
-    if (segments.length === 2 && segments[0] === "assignments" && segments[1] === "open") {
-      const signed = await requireSignedAgentRequest(req, "");
-      if (!signed.ok) return signed.response;
-      const agent = signed.agent;
-      if (!agent) return badRequest("Unsigned dev mode cannot be used for this endpoint");
-      return ok({ assignments: store.listOpenAssignmentsForAgent(agent.id) });
     }
 
     if (segments.length === 1 && segments[0] === "guidelines") {
@@ -861,16 +837,6 @@ export async function GET(req: NextRequest) {
       const domain = store.listDomains().find((d) => d.id === segments[1]);
       if (!domain) return notFound("Domain not found");
       return ok({ domain, guidelines: store.listGuidelines().filter((g) => g.domains.includes("*") || g.domains.includes(domain.id)) });
-    }
-
-    if (segments.length === 2 && segments[0] === "reviews") {
-      const review = store.getReview(segments[1]);
-      if (!review) return notFound("Review not found");
-      const paper = store.getPaper(review.paperId);
-      if (paper?.publicPurgedAt) {
-        return ok({ reviewId: review.id, paperPurged: true });
-      }
-      return ok({ review });
     }
 
     if (segments.length === 1 && segments[0] === "accepted") {
@@ -1196,13 +1162,6 @@ export async function POST(req: NextRequest) {
         return conflict("Agent registration conflict", { errorCode: ERROR_CODES.conflict });
       }
       const { agent } = registered;
-      agent.currentSkillManifestHash = sha256Hex(JSON.stringify({
-        mode: "key_only",
-        agent_handle: effective.agent_handle,
-        public_key: effective.public_key,
-        endpoint_base_url: effective.endpoint_base_url,
-        domains: effective.domains
-      }));
 
       const challenge = store.createAgentVerificationChallenge(agent.id);
       const claimTicket = store.createAgentClaimTicket(agent.id);
@@ -1497,8 +1456,7 @@ export async function POST(req: NextRequest) {
         language: payload.language,
         references: payload.references,
         sourceRepoUrl: payload.source_repo_url,
-        sourceRef: payload.source_ref,
-        guidelineVersionId: DEFAULT_GUIDELINE_VERSION_ID
+        sourceRef: payload.source_ref
       });
       store.recomputePaperDecision(createdPaper.paper.id, createdPaper.version.id);
       return await respondIdempotent(req, agent.id, 201, createdPaper);
@@ -1594,107 +1552,11 @@ export async function POST(req: NextRequest) {
         language: payload.language,
         references: payload.references,
         sourceRepoUrl: payload.source_repo_url,
-        sourceRef: payload.source_ref,
-        guidelineVersionId: DEFAULT_GUIDELINE_VERSION_ID
+        sourceRef: payload.source_ref
       });
       if (!createdVersion) return serverError("Failed to create paper version", { errorCode: ERROR_CODES.internal });
       store.recomputePaperDecision(paperId, createdVersion.version.id);
       return await respondIdempotent(req, agent.id, 201, createdVersion);
-    }
-
-    if (segments.length === 3 && segments[0] === "assignments" && segments[2] === "claim") {
-      const signed = await requireSignedAgentRequest(req, bodyText);
-      if (!signed.ok) return signed.response;
-      const agent = signed.agent;
-      if (!agent) return badRequest("Unsigned dev mode cannot claim assignments", undefined, { errorCode: ERROR_CODES.badRequest });
-      const signedRateLimit = applyCommonSignedWriteLimits(store, agent);
-      if (signedRateLimit) return signedRateLimit;
-
-      const replay = await maybeReplayIdempotency(req, agent.id);
-      if (replay) return replay;
-
-      const parsedBody = assignmentClaimRequestSchema.safeParse(parseJsonBody<unknown>(bodyText || "{}"));
-      if (!parsedBody.success) {
-        return unprocessableEntity("Invalid assignment claim payload", {
-          errorCode: ERROR_CODES.unprocessableEntity,
-          fieldErrors: zodFieldErrors(parsedBody.error)
-        });
-      }
-      if (parsedBody.data.agent_id !== agent.id) return forbidden("agent_id must match signed agent", { errorCode: ERROR_CODES.forbidden });
-      const result = store.claimAssignment(segments[1], agent.id);
-      if ("error" in result) {
-        if (result.error === "Review self not allowed") {
-          return unprocessableEntity("Agents cannot review their own papers", {
-            errorCode: ERROR_CODES.reviewSelfNotAllowed
-          });
-        }
-        return conflict(result.error ?? "Assignment claim failed", { errorCode: ERROR_CODES.conflict });
-      }
-      return await respondIdempotent(req, agent.id, 200, result);
-    }
-
-    if (segments.length === 3 && segments[0] === "assignments" && segments[2] === "reviews") {
-      const signed = await requireSignedAgentRequest(req, bodyText);
-      if (!signed.ok) return signed.response;
-      const agent = signed.agent;
-      if (!agent) return badRequest("Unsigned dev mode cannot submit reviews", undefined, { errorCode: ERROR_CODES.badRequest });
-      const signedRateLimit = applyCommonSignedWriteLimits(store, agent);
-      if (signedRateLimit) return signedRateLimit;
-      const humanReviewLimit = applyHumanOwnedWriteLimit(store, agent, "review");
-      if (humanReviewLimit) return humanReviewLimit;
-
-      const replay = await maybeReplayIdempotency(req, agent.id);
-      if (replay) return replay;
-
-      const parsedBody = reviewSubmissionRequestSchema.safeParse(parseJsonBody<unknown>(bodyText || "{}"));
-      if (!parsedBody.success) {
-        return unprocessableEntity("Invalid review submission", {
-          errorCode: ERROR_CODES.unprocessableEntity,
-          fieldErrors: zodFieldErrors(parsedBody.error)
-        });
-      }
-      const payload = parsedBody.data;
-      if (payload.assignment_id !== segments[1]) return forbidden("assignment_id must match route assignmentId", { errorCode: ERROR_CODES.forbidden });
-
-      const result = store.submitReview({
-        reviewerAgentId: agent.id,
-        assignmentId: payload.assignment_id,
-        paperVersionId: payload.paper_version_id,
-        role: payload.role,
-        guidelineVersionId: payload.guideline_version_id,
-        recommendation: payload.recommendation,
-        scores: payload.scores,
-        summary: payload.summary,
-        strengths: payload.strengths,
-        weaknesses: payload.weaknesses,
-        questions: payload.questions,
-        findings: payload.findings,
-        skillManifestHash: payload.skill_manifest_hash
-      });
-      if ("error" in result) {
-        if (result.error === "Review self not allowed") {
-          return unprocessableEntity("Agents cannot review their own papers", {
-            errorCode: ERROR_CODES.reviewSelfNotAllowed
-          });
-        }
-        if (result.error === "Review duplicate human on version") {
-          return conflict("A user may only submit one review per paper version", {
-            errorCode: ERROR_CODES.reviewDuplicateHumanOnVersion
-          });
-        }
-        if (result.error === "Review cap reached") {
-          return conflict("This paper version already has the maximum number of reviews", {
-            errorCode: ERROR_CODES.reviewCapReached
-          });
-        }
-        if (result.error === "Paper is not under review") {
-          return conflict("Paper is not under review", {
-            errorCode: ERROR_CODES.conflict
-          });
-        }
-        return conflict(result.error ?? "Review submission failed", { errorCode: ERROR_CODES.conflict });
-      }
-      return await respondIdempotent(req, agent.id, 201, result);
     }
 
     if (segments.length === 3 && segments[0] === "papers" && segments[2] === "reviews") {

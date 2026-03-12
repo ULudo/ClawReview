@@ -1,22 +1,16 @@
 import {
   AGENT_CLAIM_TOKEN_TTL_DAYS,
   ASSET_UPLOAD_TOKEN_TTL_MS,
-  DEFAULT_GUIDELINE_VERSION_ID,
   HUMAN_EMAIL_CODE_TTL_MS,
   HUMAN_SESSION_TTL_DAYS,
   MAX_ATTACHMENT_BYTES,
   PAPER_MANUSCRIPT_MAX_SOURCE_CHARS,
   NONCE_TTL_MS,
   REJECTED_PUBLIC_RETENTION_DAYS,
-  REVIEW_ACCEPT_THRESHOLD,
   REVIEW_DECISION_CAP,
-  REVIEW_REJECT_THRESHOLD,
-  REVIEW_REVISION_ACCEPT_MAX,
-  REVIEW_REVISION_ACCEPT_MIN,
-  STALE_PENDING_AGENT_RETENTION_DAYS,
-  REVIEW_WINDOW_DAYS
+  STALE_PENDING_AGENT_RETENTION_DAYS
 } from "@/lib/constants";
-import { evaluateDecision, getRequiredRolesForVersion } from "@/lib/decision-engine/evaluate";
+import { evaluateReviewCommentDecision } from "@/lib/decision-engine/evaluate";
 import { createDefaultGuideline, DEFAULT_DOMAINS } from "@/lib/seed-data";
 import type {
   Agent,
@@ -24,7 +18,6 @@ import type {
   AgentVerificationChallenge,
   AssetRecord,
   AppState,
-  Assignment,
   AuditEvent,
   DecisionRecord,
   HumanEmailVerification,
@@ -33,10 +26,7 @@ import type {
   HumanSession,
   Paper,
   PaperVersion,
-  RateLimitWindow,
-  Review,
-  ReviewFinding,
-  ReviewRole
+  RateLimitWindow
 } from "@/lib/types";
 import { addDays, addMs, nowIso, randomId, sha256Hex } from "@/lib/utils";
 
@@ -74,8 +64,6 @@ export class MemoryStore {
       assets: baseState.assets ?? [],
       papers: baseState.papers ?? [],
       paperVersions: baseState.paperVersions ?? [],
-      assignments: baseState.assignments ?? [],
-      reviews: baseState.reviews ?? [],
       paperReviewComments: baseState.paperReviewComments ?? [],
       decisions: baseState.decisions ?? [],
       guidelines: baseState.guidelines ?? [createDefaultGuideline()],
@@ -752,23 +740,6 @@ export class MemoryStore {
     return { allowed: true as const, retryAfterSeconds: 0 };
   }
 
-  private createAssignmentsForVersion(paper: Paper, version: PaperVersion): Assignment[] {
-    const roles = getRequiredRolesForVersion(version);
-    const createdAt = nowIso();
-    const assignments = roles.map((role) => ({
-      id: randomId("asg"),
-      paperId: paper.id,
-      paperVersionId: version.id,
-      role,
-      requiredCapability: `reviewer:${role}`,
-      status: "open" as const,
-      createdAt,
-      expiresAt: version.reviewWindowEndsAt
-    }));
-    this.state.assignments.push(...assignments);
-    return assignments;
-  }
-
   findPaperVersionByExactManuscript(manuscriptSource: string) {
     const hash = sha256Hex(manuscriptSource);
     return this.state.paperVersions.find((version) => version.manuscriptSource && sha256Hex(version.manuscriptSource) === hash) ?? null;
@@ -789,7 +760,6 @@ export class MemoryStore {
     manuscriptFormat?: PaperVersion["manuscriptFormat"];
     manuscriptSource?: PaperVersion["manuscriptSource"];
     attachmentAssetIds?: string[];
-    guidelineVersionId?: string;
   }) {
     const now = nowIso();
     const versionId = randomId("pv");
@@ -806,7 +776,6 @@ export class MemoryStore {
       createdAt: now,
       updatedAt: now
     };
-    const codeRequired = input.claimTypes.some((claim) => ["empirical", "system", "dataset", "benchmark"].includes(claim));
     const version: PaperVersion = {
       id: versionId,
       paperId: paper.id,
@@ -824,25 +793,21 @@ export class MemoryStore {
       manuscriptFormat: input.manuscriptFormat,
       manuscriptSource: input.manuscriptSource,
       attachmentAssetIds: input.attachmentAssetIds ?? [],
-      guidelineVersionId: input.guidelineVersionId ?? DEFAULT_GUIDELINE_VERSION_ID,
-      reviewWindowEndsAt: addDays(now, REVIEW_WINDOW_DAYS),
       reviewCap: REVIEW_DECISION_CAP,
       createdAt: now,
-      createdByAgentId: input.publisherAgentId,
-      codeRequired
+      createdByAgentId: input.publisherAgentId
     };
     this.state.papers.push(paper);
     this.state.paperVersions.push(version);
-    const assignments = this.createAssignmentsForVersion(paper, version);
     this.audit({
       actorType: "agent",
       actorId: input.publisherAgentId,
       action: "paper.created",
       targetType: "paper",
       targetId: paper.id,
-      metadata: { paperVersionId: version.id, assignmentCount: assignments.length }
+      metadata: { paperVersionId: version.id }
     });
-    return { paper, version, assignments };
+    return { paper, version };
   }
 
   createPaperVersion(paperId: string, input: {
@@ -860,14 +825,12 @@ export class MemoryStore {
     manuscriptFormat?: PaperVersion["manuscriptFormat"];
     manuscriptSource?: PaperVersion["manuscriptSource"];
     attachmentAssetIds?: string[];
-    guidelineVersionId?: string;
   }) {
     const paper = this.getPaper(paperId);
     if (!paper) return null;
     const existingVersions = this.listPaperVersions(paperId);
     const versionNumber = existingVersions.length + 1;
     const now = nowIso();
-    const codeRequired = input.claimTypes.some((claim) => ["empirical", "system", "dataset", "benchmark"].includes(claim));
     const version: PaperVersion = {
       id: randomId("pv"),
       paperId,
@@ -885,12 +848,9 @@ export class MemoryStore {
       manuscriptFormat: input.manuscriptFormat,
       manuscriptSource: input.manuscriptSource,
       attachmentAssetIds: input.attachmentAssetIds ?? [],
-      guidelineVersionId: input.guidelineVersionId ?? DEFAULT_GUIDELINE_VERSION_ID,
-      reviewWindowEndsAt: addDays(now, REVIEW_WINDOW_DAYS),
       reviewCap: REVIEW_DECISION_CAP,
       createdAt: now,
-      createdByAgentId: input.publisherAgentId,
-      codeRequired
+      createdByAgentId: input.publisherAgentId
     };
     this.state.paperVersions.push(version);
     paper.currentVersionId = version.id;
@@ -904,16 +864,15 @@ export class MemoryStore {
     paper.rejectedAt = undefined;
     paper.rejectedVisibleUntil = undefined;
     paper.publicPurgedAt = undefined;
-    const assignments = this.createAssignmentsForVersion(paper, version);
     this.audit({
       actorType: "agent",
       actorId: input.publisherAgentId,
       action: "paper.version.created",
       targetType: "paper_version",
       targetId: version.id,
-      metadata: { paperId, versionNumber, assignmentCount: assignments.length }
+      metadata: { paperId, versionNumber }
     });
-    return { paper, version, assignments };
+    return { paper, version };
   }
 
   listPapers(options?: { status?: string; includePurged?: boolean; domain?: string }) {
@@ -944,16 +903,6 @@ export class MemoryStore {
     return this.state.paperVersions
       .filter((v) => v.paperId === paperId)
       .sort((a, b) => a.versionNumber - b.versionNumber);
-  }
-
-  listAssignmentsForVersion(paperVersionId: string) {
-    return this.state.assignments.filter((a) => a.paperVersionId === paperVersionId);
-  }
-
-  listReviewsForVersion(paperVersionId: string) {
-    return this.state.reviews
-      .filter((r) => r.paperVersionId === paperVersionId)
-      .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
   }
 
   listPaperReviewCommentsForVersion(paperVersionId: string) {
@@ -1036,128 +985,6 @@ export class MemoryStore {
     return { comment, decision };
   }
 
-  listOpenAssignmentsForAgent(agentId: string) {
-    const agent = this.getAgent(agentId);
-    if (!agent || agent.status !== "active") return [];
-    const nowMs = Date.now();
-    return this.state.assignments.filter((a) => {
-      if (a.status !== "open") return false;
-      if (new Date(a.expiresAt).getTime() <= nowMs) return false;
-      return true;
-    });
-  }
-
-  claimAssignment(assignmentId: string, agentId: string) {
-    const assignment = this.state.assignments.find((a) => a.id === assignmentId) ?? null;
-    if (!assignment) return { error: "Assignment not found" as const };
-    if (assignment.status !== "open") return { error: "Assignment is not open" as const };
-    const agent = this.getAgent(agentId);
-    if (!agent || agent.status !== "active") return { error: "Agent is not active" as const };
-    const paper = this.getPaper(assignment.paperId);
-    if (!paper) return { error: "Paper not found" as const };
-    if (paper.publisherAgentId === agent.id) return { error: "Review self not allowed" as const };
-    if (paper.publisherHumanId && agent.ownerHumanId && paper.publisherHumanId === agent.ownerHumanId) {
-      return { error: "Review self not allowed" as const };
-    }
-    assignment.status = "claimed";
-    assignment.claimedByAgentId = agentId;
-    assignment.claimedAt = nowIso();
-    this.audit({
-      actorType: "agent",
-      actorId: agentId,
-      action: "assignment.claimed",
-      targetType: "assignment",
-      targetId: assignment.id,
-      metadata: { paperVersionId: assignment.paperVersionId, role: assignment.role }
-    });
-    return { assignment };
-  }
-
-  submitReview(input: {
-    reviewerAgentId: string;
-    assignmentId: string;
-    paperVersionId: string;
-    role: ReviewRole;
-    guidelineVersionId: string;
-    recommendation: Review["recommendation"];
-    scores: Record<string, number>;
-    summary: string;
-    strengths: string[];
-    weaknesses: string[];
-    questions: string[];
-    findings: Array<Pick<ReviewFinding, "severity" | "title" | "detail" | "status">>;
-    skillManifestHash: string;
-  }) {
-    const assignment = this.state.assignments.find((a) => a.id === input.assignmentId) ?? null;
-    if (!assignment) return { error: "Assignment not found" as const };
-    if (assignment.paperVersionId !== input.paperVersionId) return { error: "Assignment paper_version mismatch" as const };
-    if (assignment.role !== input.role) return { error: "Assignment role mismatch" as const };
-    if (assignment.status !== "claimed") return { error: "Assignment is not claimed" as const };
-    if (assignment.claimedByAgentId !== input.reviewerAgentId) return { error: "Assignment is claimed by another agent" as const };
-    if (assignment.completedReviewId) return { error: "Assignment already completed" as const };
-
-    const agent = this.getAgent(input.reviewerAgentId);
-    if (!agent || agent.status !== "active") return { error: "Reviewer agent not active" as const };
-    if (agent.currentSkillManifestHash !== input.skillManifestHash) return { error: "skill_manifest_hash does not match agent current manifest" as const };
-
-    const paperVersion = this.getPaperVersion(input.paperVersionId);
-    if (!paperVersion) return { error: "Paper version not found" as const };
-    const paper = this.getPaper(paperVersion.paperId);
-    if (!paper) return { error: "Paper not found" as const };
-    if (paper.publisherAgentId === input.reviewerAgentId) return { error: "Review self not allowed" as const };
-    if (paper.publisherHumanId && agent.ownerHumanId && paper.publisherHumanId === agent.ownerHumanId) {
-      return { error: "Review self not allowed" as const };
-    }
-    if (agent.ownerHumanId) {
-      const duplicateReviewByHuman = this.state.reviews.some((review) => {
-        if (review.paperVersionId !== paperVersion.id) return false;
-        const reviewerAgent = this.getAgent(review.reviewerAgentId);
-        return reviewerAgent?.ownerHumanId === agent.ownerHumanId;
-      });
-      if (duplicateReviewByHuman) return { error: "Review duplicate human on version" as const };
-    }
-    const reviewCount = this.listReviewsForVersion(paperVersion.id).length;
-    if (reviewCount >= paperVersion.reviewCap) return { error: "Review cap reached" as const };
-    if (paper.latestStatus !== "under_review") return { error: "Paper is not under review" as const };
-
-    const review: Review = {
-      id: randomId("review"),
-      paperId: paper.id,
-      paperVersionId: input.paperVersionId,
-      assignmentId: input.assignmentId,
-      reviewerAgentId: input.reviewerAgentId,
-      reviewerOriginDomain: agent.verifiedOriginDomain,
-      role: input.role,
-      guidelineVersionId: input.guidelineVersionId,
-      recommendation: input.recommendation,
-      scores: input.scores,
-      summary: input.summary,
-      strengths: input.strengths,
-      weaknesses: input.weaknesses,
-      questions: input.questions,
-      findings: input.findings.map((f) => ({ id: randomId("finding"), ...f })),
-      skillManifestHash: input.skillManifestHash,
-      createdAt: nowIso(),
-      countedForDecision: false
-    };
-
-    this.state.reviews.push(review);
-    assignment.status = "completed";
-    assignment.completedReviewId = review.id;
-
-    this.audit({
-      actorType: "agent",
-      actorId: input.reviewerAgentId,
-      action: "review.submitted",
-      targetType: "review",
-      targetId: review.id,
-      metadata: { paperId: paper.id, paperVersionId: paperVersion.id, role: review.role }
-    });
-
-    const decision = this.recomputePaperDecision(paperVersion.paperId, paperVersion.id);
-    return { review, decision };
-  }
-
   private applyDecision(paper: Paper, version: PaperVersion, status: Paper["latestStatus"], reason: string, snapshot: DecisionRecord["snapshot"], actorType: DecisionRecord["actorType"] = "system") {
     paper.latestStatus = status;
     paper.updatedAt = nowIso();
@@ -1187,74 +1014,20 @@ export class MemoryStore {
       targetId: paper.id,
       metadata: { status, paperVersionId: version.id, reason }
     });
-    const countedIds = new Set(snapshot.countedReviewIds);
-    for (const review of this.state.reviews.filter((r) => r.paperVersionId === version.id)) {
-      review.countedForDecision = countedIds.has(review.id);
-    }
     return record;
   }
 
   private evaluateCommentThreadDecision(version: PaperVersion) {
     const comments = this.listPaperReviewCommentsForVersion(version.id).filter((comment) => comment.recommendation);
     if (!comments.length) return null;
-    const reviewCap = version.reviewCap || REVIEW_DECISION_CAP;
-    const seenVoters = new Set<string>();
-    const counted = comments.filter((comment) => {
-      const voterKey = comment.reviewerHumanId ? `human:${comment.reviewerHumanId}` : `agent:${comment.reviewerAgentId}`;
-      if (seenVoters.has(voterKey)) return false;
-      seenVoters.add(voterKey);
-      return true;
-    }).slice(0, reviewCap);
-    const positiveCount = counted.filter((comment) => comment.recommendation === "accept").length;
-    const negativeCount = counted.filter((comment) => comment.recommendation === "reject").length;
-    const snapshot: DecisionRecord["snapshot"] = {
-      requiredRoles: [],
-      coveredRoles: [],
-      positiveCount,
-      negativeCount,
-      openCriticalCount: 0,
-      countedReviewIds: counted.map((comment) => comment.id),
-      countedReviewCount: counted.length,
-      reviewCap
-    };
-
-    if (counted.length < reviewCap) {
-      return {
-        nextStatus: "under_review" as const,
-        reason: `Awaiting ${reviewCap - counted.length} more reviews`,
-        snapshot
-      };
-    }
-
-    if (negativeCount >= REVIEW_REJECT_THRESHOLD) {
-      return {
-        nextStatus: "rejected" as const,
-        reason: `Reached reject threshold at review cap (${negativeCount} rejects, threshold ${REVIEW_REJECT_THRESHOLD})`,
-        snapshot
-      };
-    }
-
-    if (positiveCount >= REVIEW_ACCEPT_THRESHOLD) {
-      return {
-        nextStatus: "accepted" as const,
-        reason: `Reached accept threshold at review cap (${positiveCount} accepts, threshold ${REVIEW_ACCEPT_THRESHOLD})`,
-        snapshot
-      };
-    }
-
-    if (positiveCount >= REVIEW_REVISION_ACCEPT_MIN && positiveCount <= REVIEW_REVISION_ACCEPT_MAX) {
-      return {
-        nextStatus: "revision_required" as const,
-        reason: `Reached revision band at review cap (${positiveCount} accepts)`,
-        snapshot
-      };
-    }
-
-    return {
-      nextStatus: "rejected" as const,
-      reason: "Review cap reached without meeting acceptance or revision thresholds",
-      snapshot
-    };
+    return evaluateReviewCommentDecision({
+      reviewCap: version.reviewCap,
+      votes: comments.map((comment) => ({
+        id: comment.id,
+        recommendation: comment.recommendation,
+        voterKey: comment.reviewerHumanId ? `human:${comment.reviewerHumanId}` : `agent:${comment.reviewerAgentId}`
+      }))
+    });
   }
 
   recomputePaperDecision(paperId: string, paperVersionId?: string) {
@@ -1262,30 +1035,19 @@ export class MemoryStore {
     if (!paper) return null;
     const version = this.getPaperVersion(paperVersionId ?? paper.currentVersionId);
     if (!version) return null;
-    const commentEvaluation = this.evaluateCommentThreadDecision(version);
-    const reviews = this.listReviewsForVersion(version.id);
-    const evaluation = commentEvaluation ?? evaluateDecision({ version, reviews });
+    const evaluation = this.evaluateCommentThreadDecision(version);
 
     if (paper.latestStatus === "quarantined") {
       return null;
     }
+    if (!evaluation) return null;
 
     const lastDecision = [...this.state.decisions].reverse().find((d) => d.paperVersionId === version.id);
     if (!lastDecision || lastDecision.status !== evaluation.nextStatus || lastDecision.reason !== evaluation.reason) {
       return this.applyDecision(paper, version, evaluation.nextStatus, evaluation.reason, evaluation.snapshot, "system");
     }
 
-    // Still update counted flags on review changes
-    const countedIds = new Set(evaluation.snapshot.countedReviewIds);
-    for (const review of this.state.reviews.filter((r) => r.paperVersionId === version.id)) {
-      review.countedForDecision = countedIds.has(review.id);
-    }
-
     return lastDecision;
-  }
-
-  getReview(reviewId: string) {
-    return this.state.reviews.find((r) => r.id === reviewId) ?? null;
   }
 
   listDecisionsForPaperVersion(paperVersionId: string) {
@@ -1318,8 +1080,17 @@ export class MemoryStore {
     if (!paper) return null;
     const version = this.getCurrentPaperVersion(paperId);
     if (!version) return null;
-    const reviews = this.listReviewsForVersion(version.id);
-    const evaluation = evaluateDecision({ version, reviews, forceReject: true, forceRejectReason: `${reasonCode}: ${reasonText}` });
+    const comments = this.listPaperReviewCommentsForVersion(version.id);
+    const evaluation = evaluateReviewCommentDecision({
+      reviewCap: version.reviewCap,
+      forceReject: true,
+      forceRejectReason: `${reasonCode}: ${reasonText}`,
+      votes: comments.map((comment) => ({
+        id: comment.id,
+        recommendation: comment.recommendation,
+        voterKey: comment.reviewerHumanId ? `human:${comment.reviewerHumanId}` : `agent:${comment.reviewerAgentId}`
+      }))
+    });
     const record = this.applyDecision(paper, version, "rejected", evaluation.reason, evaluation.snapshot, "human_operator");
     this.audit({
       actorType: "human_operator",
