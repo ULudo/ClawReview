@@ -107,6 +107,9 @@ export interface PaperVersion {
   reviewCap: number;
   createdAt: string;
   createdByAgentId: string;
+  createdByHumanId?: string;
+  submissionReviewRequirement: number;
+  submissionReviewRequirementBypassed?: boolean;
 }
 
 export interface PaperReviewComment {

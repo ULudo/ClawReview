@@ -8,6 +8,7 @@ import {
   NONCE_TTL_MS,
   REJECTED_PUBLIC_RETENTION_DAYS,
   REVIEW_DECISION_CAP,
+  REVIEWS_REQUIRED_PER_SUBMISSION,
   STALE_PENDING_AGENT_RETENTION_DAYS
 } from "@/lib/constants";
 import { evaluateReviewCommentDecision } from "@/lib/decision-engine/evaluate";
@@ -103,6 +104,15 @@ export class MemoryStore {
       if (!Number.isFinite(version.reviewCap) || version.reviewCap <= 0) {
         version.reviewCap = REVIEW_DECISION_CAP;
       }
+      if (version.createdByHumanId == null) {
+        version.createdByHumanId = this.getAgent(version.createdByAgentId)?.ownerHumanId;
+      }
+      if (!Number.isFinite(version.submissionReviewRequirement)) {
+        version.submissionReviewRequirement = 0;
+      }
+      if (version.submissionReviewRequirementBypassed == null) {
+        version.submissionReviewRequirementBypassed = version.submissionReviewRequirement === 0;
+      }
       if (version.manuscriptSource && version.manuscriptSource.length > PAPER_MANUSCRIPT_MAX_SOURCE_CHARS) {
         // Keep historic records readable, but ensure future writes enforce strict limits.
         version.manuscriptSource = version.manuscriptSource.slice(0, PAPER_MANUSCRIPT_MAX_SOURCE_CHARS);
@@ -186,6 +196,81 @@ export class MemoryStore {
     return this.state.paperReviewComments
       .filter((comment) => comment.reviewerHumanId === humanId)
       .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  }
+
+  listEligibleReviewTargetsForAgent(agentId: string) {
+    const agent = this.getAgent(agentId);
+    if (!agent || agent.status !== "active") return [];
+
+    return this.state.papers.flatMap((paper) => {
+      if (paper.latestStatus !== "under_review") return [];
+      const version = this.getCurrentPaperVersion(paper.id);
+      if (!version) return [];
+      const existingComments = this.listPaperReviewCommentsForVersion(version.id);
+      if (existingComments.length >= version.reviewCap) return [];
+      if (paper.publisherAgentId === agent.id) return [];
+      if (existingComments.some((comment) => comment.reviewerAgentId === agent.id)) return [];
+      return [{
+        paperId: paper.id,
+        paperVersionId: version.id
+      }];
+    });
+  }
+
+  getSubmissionGateForAgent(agentId: string) {
+    const agent = this.getAgent(agentId);
+    if (!agent || !agent.ownerHumanId) return null;
+
+    const humanGate = this.getSubmissionGateForHuman(agent.ownerHumanId);
+    if (!humanGate) return null;
+    const eligibleReviewTargets = this.listEligibleReviewTargetsForAgent(agentId);
+    const bypassAllowed = humanGate.outstandingReviewCount > 0 && eligibleReviewTargets.length === 0;
+
+    return {
+      ...humanGate,
+      eligibleReviewCount: eligibleReviewTargets.length,
+      blocked: humanGate.outstandingReviewCount > 0 && !bypassAllowed,
+      bypassAllowed,
+      nextSubmissionReviewRequirement: eligibleReviewTargets.length === 0 ? 0 : REVIEWS_REQUIRED_PER_SUBMISSION
+    };
+  }
+
+  getSubmissionGateForHuman(humanId: string) {
+    const submissions = this.state.paperVersions
+      .filter((version) => version.createdByHumanId === humanId)
+      .map((version) => ({
+        type: "submission" as const,
+        createdAt: version.createdAt,
+        amount: Number.isFinite(version.submissionReviewRequirement) ? version.submissionReviewRequirement : 0
+      }));
+    const completedReviews = this.state.paperReviewComments
+      .filter((comment) => comment.reviewerHumanId === humanId)
+      .map((comment) => ({
+        type: "review" as const,
+        createdAt: comment.createdAt,
+        amount: 1
+      }));
+
+    const requiredReviewCount = submissions.reduce((sum, event) => sum + event.amount, 0);
+    const completedReviewCount = completedReviews.length;
+    const outstandingReviewCount = [...submissions, ...completedReviews]
+      .sort((a, b) => {
+        const timeDelta = new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+        if (timeDelta !== 0) return timeDelta;
+        if (a.type === b.type) return 0;
+        return a.type === "submission" ? -1 : 1;
+      })
+      .reduce((outstanding, event) => {
+        if (event.type === "submission") return outstanding + event.amount;
+        return Math.max(0, outstanding - event.amount);
+      }, 0);
+
+    return {
+      humanId,
+      requiredReviewCount,
+      completedReviewCount,
+      outstandingReviewCount
+    };
   }
 
   private generateEmailCode() {
@@ -747,6 +832,7 @@ export class MemoryStore {
 
   createPaperWithVersion(input: {
     publisherAgentId: string;
+    publisherHumanId?: string;
     title: string;
     abstract: string;
     domains: string[];
@@ -760,10 +846,12 @@ export class MemoryStore {
     manuscriptFormat?: PaperVersion["manuscriptFormat"];
     manuscriptSource?: PaperVersion["manuscriptSource"];
     attachmentAssetIds?: string[];
+    submissionReviewRequirement?: number;
+    submissionReviewRequirementBypassed?: boolean;
   }) {
     const now = nowIso();
     const versionId = randomId("pv");
-    const publisherHumanId = this.getAgent(input.publisherAgentId)?.ownerHumanId;
+    const publisherHumanId = input.publisherHumanId ?? this.getAgent(input.publisherAgentId)?.ownerHumanId;
     const paper: Paper = {
       id: randomId("paper"),
       publisherAgentId: input.publisherAgentId,
@@ -795,7 +883,10 @@ export class MemoryStore {
       attachmentAssetIds: input.attachmentAssetIds ?? [],
       reviewCap: REVIEW_DECISION_CAP,
       createdAt: now,
-      createdByAgentId: input.publisherAgentId
+      createdByAgentId: input.publisherAgentId,
+      createdByHumanId: publisherHumanId,
+      submissionReviewRequirement: input.submissionReviewRequirement ?? 0,
+      submissionReviewRequirementBypassed: input.submissionReviewRequirementBypassed ?? (input.submissionReviewRequirement ?? 0) === 0
     };
     this.state.papers.push(paper);
     this.state.paperVersions.push(version);
@@ -812,6 +903,7 @@ export class MemoryStore {
 
   createPaperVersion(paperId: string, input: {
     publisherAgentId: string;
+    publisherHumanId?: string;
     title: string;
     abstract: string;
     domains: string[];
@@ -825,12 +917,15 @@ export class MemoryStore {
     manuscriptFormat?: PaperVersion["manuscriptFormat"];
     manuscriptSource?: PaperVersion["manuscriptSource"];
     attachmentAssetIds?: string[];
+    submissionReviewRequirement?: number;
+    submissionReviewRequirementBypassed?: boolean;
   }) {
     const paper = this.getPaper(paperId);
     if (!paper) return null;
     const existingVersions = this.listPaperVersions(paperId);
     const versionNumber = existingVersions.length + 1;
     const now = nowIso();
+    const publisherHumanId = input.publisherHumanId ?? this.getAgent(input.publisherAgentId)?.ownerHumanId ?? paper.publisherHumanId;
     const version: PaperVersion = {
       id: randomId("pv"),
       paperId,
@@ -850,11 +945,14 @@ export class MemoryStore {
       attachmentAssetIds: input.attachmentAssetIds ?? [],
       reviewCap: REVIEW_DECISION_CAP,
       createdAt: now,
-      createdByAgentId: input.publisherAgentId
+      createdByAgentId: input.publisherAgentId,
+      createdByHumanId: publisherHumanId,
+      submissionReviewRequirement: input.submissionReviewRequirement ?? 0,
+      submissionReviewRequirementBypassed: input.submissionReviewRequirementBypassed ?? (input.submissionReviewRequirement ?? 0) === 0
     };
     this.state.paperVersions.push(version);
     paper.currentVersionId = version.id;
-    paper.publisherHumanId = this.getAgent(input.publisherAgentId)?.ownerHumanId ?? paper.publisherHumanId;
+    paper.publisherHumanId = publisherHumanId ?? paper.publisherHumanId;
     paper.title = input.title;
     paper.domains = [...input.domains];
     paper.keywords = [...input.keywords];
@@ -916,14 +1014,12 @@ export class MemoryStore {
     const reviewCap = this.getPaperVersion(paperVersionId)?.reviewCap ?? REVIEW_DECISION_CAP;
     const reviewerAgentIds = Array.from(new Set(comments.map((comment) => comment.reviewerAgentId)));
     const reviewerHumanIds = Array.from(new Set(comments.map((comment) => comment.reviewerHumanId).filter((value): value is string => Boolean(value))));
-    const viewerHumanId = viewerAgentId ? this.getAgent(viewerAgentId)?.ownerHumanId : undefined;
     return {
       reviewCount: comments.length,
       reviewCap,
       reviewerAgentIds,
       reviewerHumanIds,
-      alreadyReviewedByAgent: viewerAgentId ? reviewerAgentIds.includes(viewerAgentId) : false,
-      alreadyReviewedByHuman: viewerHumanId ? reviewerHumanIds.includes(viewerHumanId) : false
+      alreadyReviewedByAgent: viewerAgentId ? reviewerAgentIds.includes(viewerAgentId) : false
     };
   }
 
@@ -941,9 +1037,6 @@ export class MemoryStore {
     const agent = this.getAgent(input.reviewerAgentId);
     if (!agent || agent.status !== "active") return { error: "Reviewer agent not active" as const };
     if (paper.publisherAgentId === agent.id) return { error: "Review self not allowed" as const };
-    if (paper.publisherHumanId && agent.ownerHumanId && paper.publisherHumanId === agent.ownerHumanId) {
-      return { error: "Review self not allowed" as const };
-    }
     const versionComments = this.listPaperReviewCommentsForVersion(version.id);
     if (versionComments.length >= version.reviewCap) return { error: "Review cap reached" as const };
     if (paper.latestStatus !== "under_review") return { error: "Paper is not under review" as const };
@@ -953,12 +1046,6 @@ export class MemoryStore {
     ));
     if (alreadyCommented) return { error: "Review duplicate agent on version" as const };
     const reviewerHumanId = agent.ownerHumanId;
-    if (reviewerHumanId) {
-      const alreadyCommentedByHuman = this.state.paperReviewComments.some((comment) => (
-        comment.paperVersionId === version.id && comment.reviewerHumanId === reviewerHumanId
-      ));
-      if (alreadyCommentedByHuman) return { error: "Review duplicate human on version" as const };
-    }
 
     const comment = {
       id: randomId("comment"),
@@ -1025,7 +1112,7 @@ export class MemoryStore {
       votes: comments.map((comment) => ({
         id: comment.id,
         recommendation: comment.recommendation,
-        voterKey: comment.reviewerHumanId ? `human:${comment.reviewerHumanId}` : `agent:${comment.reviewerAgentId}`
+        voterKey: `agent:${comment.reviewerAgentId}`
       }))
     });
   }
@@ -1088,7 +1175,7 @@ export class MemoryStore {
       votes: comments.map((comment) => ({
         id: comment.id,
         recommendation: comment.recommendation,
-        voterKey: comment.reviewerHumanId ? `human:${comment.reviewerHumanId}` : `agent:${comment.reviewerAgentId}`
+        voterKey: `agent:${comment.reviewerAgentId}`
       }))
     });
     const record = this.applyDecision(paper, version, "rejected", evaluation.reason, evaluation.snapshot, "human_operator");

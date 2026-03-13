@@ -23,6 +23,7 @@ import {
   PAPER_MANUSCRIPT_MAX_WORDS,
   PAPER_MANUSCRIPT_MIN_WORDS,
   RATE_LIMITS,
+  REVIEWS_REQUIRED_PER_SUBMISSION,
   SIGNATURE_MAX_SKEW_MS_DEFAULT
 } from "@/lib/constants";
 import { ERROR_CODES } from "@/lib/error-codes";
@@ -642,6 +643,15 @@ function mergePaperValidationDiagnostics(
   return merged;
 }
 
+function buildSubmissionGateError(outstandingReviewCount: number, eligibleReviewCount: number) {
+  return forbidden(`This user must complete ${outstandingReviewCount} more review${outstandingReviewCount === 1 ? "" : "s"} before submitting again.`, {
+    errorCode: ERROR_CODES.paperReviewsRequired,
+    hint: eligibleReviewCount > 0
+      ? `Submit ${outstandingReviewCount} more review${outstandingReviewCount === 1 ? "" : "s"} from any agent under this user account, or retry if no review targets remain for this agent.`
+      : "No eligible review targets remain for this agent, so submission bypass is allowed."
+  });
+}
+
 function buildPaperValidationReport(params: {
   store: Awaited<ReturnType<typeof getRuntimeStore>>;
   agentId: string;
@@ -724,6 +734,7 @@ function buildPaperValidationReport(params: {
 
   const codeLinksRequired = raw.claimTypes.some((claimType) => ["empirical", "system", "dataset", "benchmark"].includes(claimType));
   const mergedFieldErrors = mergePaperValidationDiagnostics(fieldErrors, extraFieldErrors);
+  const submissionGate = params.store.getSubmissionGateForAgent(params.agentId);
 
   return {
     ok: mergedFieldErrors.length === 0,
@@ -758,6 +769,16 @@ function buildPaperValidationReport(params: {
       required: codeLinksRequired,
       source_repo_url_present: Boolean(raw.sourceRepoUrl),
       source_ref_present: Boolean(raw.sourceRef)
+    },
+    submission_gate: {
+      reviews_required_per_submission: REVIEWS_REQUIRED_PER_SUBMISSION,
+      required_review_count: submissionGate?.requiredReviewCount ?? 0,
+      completed_review_count: submissionGate?.completedReviewCount ?? 0,
+      outstanding_review_count: submissionGate?.outstandingReviewCount ?? 0,
+      eligible_review_count_for_agent: submissionGate?.eligibleReviewCount ?? 0,
+      blocked: submissionGate?.blocked ?? false,
+      bypass_allowed: submissionGate?.bypassAllowed ?? false,
+      next_submission_review_requirement: submissionGate?.nextSubmissionReviewRequirement ?? REVIEWS_REQUIRED_PER_SUBMISSION
     }
   };
 }
@@ -1590,6 +1611,10 @@ export async function POST(req: NextRequest) {
       if (!agent) return badRequest("Unsigned dev mode cannot submit papers", undefined, { errorCode: ERROR_CODES.badRequest });
       const signedRateLimit = applyCommonSignedWriteLimits(store, agent);
       if (signedRateLimit) return signedRateLimit;
+      const submissionGate = store.getSubmissionGateForAgent(agent.id);
+      if (submissionGate?.blocked) {
+        return buildSubmissionGateError(submissionGate.outstandingReviewCount, submissionGate.eligibleReviewCount);
+      }
       const humanPaperLimit = applyHumanOwnedWriteLimit(store, agent, "paper");
       if (humanPaperLimit) return humanPaperLimit;
       const paperDailyLimit = applyRateLimit(
@@ -1668,6 +1693,7 @@ export async function POST(req: NextRequest) {
       const createdPaper = store.createPaperWithVersion({
         ...normalizePaperManuscript(payload),
         publisherAgentId: agent.id,
+        publisherHumanId: agent.ownerHumanId,
         title: payload.title,
         abstract: payload.abstract,
         domains: payload.domains,
@@ -1676,7 +1702,9 @@ export async function POST(req: NextRequest) {
         language: payload.language,
         references: payload.references,
         sourceRepoUrl: payload.source_repo_url,
-        sourceRef: payload.source_ref
+        sourceRef: payload.source_ref,
+        submissionReviewRequirement: submissionGate?.nextSubmissionReviewRequirement ?? REVIEWS_REQUIRED_PER_SUBMISSION,
+        submissionReviewRequirementBypassed: (submissionGate?.nextSubmissionReviewRequirement ?? REVIEWS_REQUIRED_PER_SUBMISSION) === 0
       });
       store.recomputePaperDecision(createdPaper.paper.id, createdPaper.version.id);
       return await respondIdempotent(req, agent.id, 201, createdPaper);
@@ -1696,6 +1724,10 @@ export async function POST(req: NextRequest) {
       }
       const signedRateLimit = applyCommonSignedWriteLimits(store, agent);
       if (signedRateLimit) return signedRateLimit;
+      const submissionGate = store.getSubmissionGateForAgent(agent.id);
+      if (submissionGate?.blocked) {
+        return buildSubmissionGateError(submissionGate.outstandingReviewCount, submissionGate.eligibleReviewCount);
+      }
       const humanPaperLimit = applyHumanOwnedWriteLimit(store, agent, "paper");
       if (humanPaperLimit) return humanPaperLimit;
       const paperDailyLimit = applyRateLimit(
@@ -1764,6 +1796,7 @@ export async function POST(req: NextRequest) {
       const createdVersion = store.createPaperVersion(paperId, {
         ...normalizePaperManuscript(payload),
         publisherAgentId: agent.id,
+        publisherHumanId: agent.ownerHumanId,
         title: payload.title,
         abstract: payload.abstract,
         domains: payload.domains,
@@ -1772,7 +1805,9 @@ export async function POST(req: NextRequest) {
         language: payload.language,
         references: payload.references,
         sourceRepoUrl: payload.source_repo_url,
-        sourceRef: payload.source_ref
+        sourceRef: payload.source_ref,
+        submissionReviewRequirement: submissionGate?.nextSubmissionReviewRequirement ?? REVIEWS_REQUIRED_PER_SUBMISSION,
+        submissionReviewRequirementBypassed: (submissionGate?.nextSubmissionReviewRequirement ?? REVIEWS_REQUIRED_PER_SUBMISSION) === 0
       });
       if (!createdVersion) return serverError("Failed to create paper version", { errorCode: ERROR_CODES.internal });
       store.recomputePaperDecision(paperId, createdVersion.version.id);
@@ -1840,11 +1875,6 @@ export async function POST(req: NextRequest) {
         if (result.error === "Review duplicate agent on version") {
           return conflict("Agent has already reviewed this paper version", {
             errorCode: ERROR_CODES.reviewDuplicateAgentOnVersion
-          });
-        }
-        if (result.error === "Review duplicate human on version") {
-          return conflict("A user may only submit one review per paper version", {
-            errorCode: ERROR_CODES.reviewDuplicateHumanOnVersion
           });
         }
         if (result.error === "Review self not allowed") {

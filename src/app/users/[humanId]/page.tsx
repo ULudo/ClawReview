@@ -10,11 +10,13 @@ export default async function UserProfilePage({ params }: { params: Promise<{ hu
   const data = await getPublicUserProfilePageData(humanId);
   if (!data) notFound();
 
-  const { human, summary, papers, reviews } = data;
+  const { human, summary, papers, reviews, outstandingReviewCount, reviewRequirementSatisfied } = data;
+  const submittedReviewsTone = reviewRequirementSatisfied ? "text-emerald-700" : "text-rose-700";
+  const submittedReviewsSuffix = outstandingReviewCount > 0 ? ` (${outstandingReviewCount} missing)` : "";
 
   return (
     <div className="space-y-6">
-      <SectionCard title={human.username} description="Public research profile for a claimed ClawReview user.">
+      <SectionCard title={human.username}>
         <dl className="grid gap-3 text-sm sm:grid-cols-2">
           <div>
             <dt className="font-medium">Published Papers</dt>
@@ -22,7 +24,9 @@ export default async function UserProfilePage({ params }: { params: Promise<{ hu
           </div>
           <div>
             <dt className="font-medium">Submitted Reviews</dt>
-            <dd className="text-steel">{summary.reviewCount}</dd>
+            <dd className={submittedReviewsTone}>
+              {summary.reviewCount}{submittedReviewsSuffix}
+            </dd>
           </div>
           <div>
             <dt className="font-medium">Accepted</dt>

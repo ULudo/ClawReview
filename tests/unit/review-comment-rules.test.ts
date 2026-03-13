@@ -109,7 +109,7 @@ describe("paper review comment guardrails", () => {
     expect("error" in result ? result.error : undefined).toBe("Review self not allowed");
   });
 
-  it("forbids self review across multiple agents owned by the same user", () => {
+  it("allows a sibling agent from the same user to review the paper", () => {
     const store = new MemoryStore();
     const publisher = createActiveAgent(store, 33);
     const ownerHumanId = store.getAgent(publisher.id)?.ownerHumanId;
@@ -138,7 +138,7 @@ describe("paper review comment guardrails", () => {
       bodyMarkdown: "C".repeat(240),
       recommendation: "reject"
     });
-    expect("error" in result ? result.error : undefined).toBe("Review self not allowed");
+    expect("error" in result).toBe(false);
   });
 
   it("allows only one comment review per agent per paper version", () => {
@@ -179,7 +179,7 @@ describe("paper review comment guardrails", () => {
     expect("error" in second ? second.error : undefined).toBe("Review duplicate agent on version");
   });
 
-  it("forbids a second agent from the same user reviewing the same paper version", () => {
+  it("allows multiple agents from the same user to review the same paper version", () => {
     const store = new MemoryStore();
     const publisher = createActiveAgent(store, 6);
 
@@ -223,7 +223,57 @@ describe("paper review comment guardrails", () => {
       bodyMarkdown: "L".repeat(220),
       recommendation: "reject"
     });
-    expect("error" in second ? second.error : undefined).toBe("Review duplicate human on version");
+    expect("error" in second).toBe(false);
+    expect(store.listPaperReviewCommentsForVersion(paper.version.id)).toHaveLength(2);
+  });
+
+  it("counts review votes per agent, not per user account", () => {
+    const store = new MemoryStore();
+    const publisher = createActiveAgent(store, 70);
+
+    const started = store.startHumanEmailVerification("shared-voter@example.org", "shared_voter");
+    const verified = store.verifyHumanEmailCode(started.human.email, started.verification.code);
+    if ("error" in verified) throw new Error(verified.error);
+    const gh = store.linkHumanGithub(verified.human.id, "gh-shared-voter", "gh_shared_voter");
+    if ("error" in gh) throw new Error(gh.error);
+
+    const reviewerA = createClaimedAgentForHuman(store, verified.human.id, 71);
+    const reviewerB = createClaimedAgentForHuman(store, verified.human.id, 72);
+    const reviewerC = createActiveAgent(store, 73);
+    const reviewerD = createActiveAgent(store, 74);
+
+    const paper = store.createPaperWithVersion({
+      publisherAgentId: publisher.id,
+      title: "Agent-level counting",
+      abstract: "A sufficiently long abstract for agent-level review counting.",
+      domains: ["ai-ml"],
+      keywords: ["test"],
+      claimTypes: ["theory"],
+      language: "en",
+      references: [],
+      contentSections: { markdown_source: "content" },
+      manuscriptFormat: "markdown",
+      manuscriptSource: "Q".repeat(1700),
+      attachmentAssetIds: []
+    });
+
+    for (const [reviewer, recommendation] of [
+      [reviewerA, "accept"],
+      [reviewerB, "accept"],
+      [reviewerC, "accept"],
+      [reviewerD, "reject"]
+    ] as const) {
+      const result = store.submitPaperReviewComment({
+        paperId: paper.paper.id,
+        paperVersionId: paper.version.id,
+        reviewerAgentId: reviewer.id,
+        bodyMarkdown: "R".repeat(220),
+        recommendation
+      });
+      expect("error" in result).toBe(false);
+    }
+
+    expect(store.getPaper(paper.paper.id)?.latestStatus).toBe("accepted");
   });
 
   it("rejects the 5th review attempt due to review cap", () => {

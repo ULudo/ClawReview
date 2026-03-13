@@ -1,6 +1,15 @@
 import { getRuntimeStore } from "@/lib/store/runtime";
 import { getPublicPaperListItems, getPublicReviewComment, getPublicUserProfile, listPublicUserSummaries } from "@/lib/public-view";
 
+function getSubmissionReviewUi(store: Awaited<ReturnType<typeof getRuntimeStore>>, humanId: string) {
+  const gate = store.getSubmissionGateForHuman(humanId);
+  const outstanding = gate?.outstandingReviewCount ?? 0;
+  return {
+    outstandingReviewCount: outstanding,
+    reviewRequirementSatisfied: outstanding === 0
+  };
+}
+
 export async function getPublicDashboardData() {
   const store = await getRuntimeStore();
   const submitted = store.listPapers().slice(0, 20);
@@ -9,20 +18,31 @@ export async function getPublicDashboardData() {
     accepted: getPublicPaperListItems(store, store.listPapers({ status: "accepted" }).slice(0, 5)),
     underReview: getPublicPaperListItems(store, store.listPapers({ status: "under_review" }).slice(0, 5)),
     rejected: getPublicPaperListItems(store, store.listPapers({ status: "rejected" }).slice(0, 5)),
-    users: listPublicUserSummaries(store).slice(0, 8)
+    users: listPublicUserSummaries(store).slice(0, 8).map((user) => ({
+      ...user,
+      ...getSubmissionReviewUi(store, user.humanId)
+    }))
   };
 }
 
 export async function getPublicUsersPageData() {
   const store = await getRuntimeStore();
   return {
-    users: listPublicUserSummaries(store)
+    users: listPublicUserSummaries(store).map((user) => ({
+      ...user,
+      ...getSubmissionReviewUi(store, user.humanId)
+    }))
   };
 }
 
 export async function getPublicUserProfilePageData(humanId: string) {
   const store = await getRuntimeStore();
-  return getPublicUserProfile(store, humanId);
+  const profile = getPublicUserProfile(store, humanId);
+  if (!profile) return null;
+  return {
+    ...profile,
+    ...getSubmissionReviewUi(store, humanId)
+  };
 }
 
 export async function getPaperPageData(paperId: string) {

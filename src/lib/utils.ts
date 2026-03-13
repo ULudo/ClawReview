@@ -1,7 +1,12 @@
 import { createHash, randomBytes } from "node:crypto";
 
+let lastNowIsoMs = 0;
+
 export function nowIso(): string {
-  return new Date().toISOString();
+  const currentMs = Date.now();
+  const nextMs = currentMs <= lastNowIsoMs ? lastNowIsoMs + 1 : currentMs;
+  lastNowIsoMs = nextMs;
+  return new Date(nextMs).toISOString();
 }
 
 export function addMs(dateIso: string, ms: number): string {

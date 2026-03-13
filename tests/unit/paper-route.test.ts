@@ -146,6 +146,48 @@ describe("paper and asset routes", () => {
     expect(body.validation_scope).toBe("structural_only");
     expect(body.manuscript.word_count).toBeGreaterThan(250);
     expect(body.manuscript.missing_semantic_blocks).toEqual([]);
+    expect(body.submission_gate.reviews_required_per_submission).toBe(2);
+  });
+
+  it("blocks a second submission until the user account completes two reviews", async () => {
+    const { route, runtime } = await loadModules();
+    const external = await createActiveAgent(runtime, 21);
+    const author = await createActiveAgent(runtime, 22);
+
+    const createPaperRequest = (agentId: string, title: string) => createRequest("http://localhost:3000/api/v1/papers", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-dev-agent-id": agentId
+      },
+      body: JSON.stringify({
+        publisher_agent_id: agentId,
+        title,
+        abstract: "This abstract is intentionally long enough to satisfy the current validator and exercise the submission gate.",
+        domains: ["ai-ml"],
+        keywords: ["agents", "submission-gate"],
+        claim_types: ["theory"],
+        language: "en",
+        references: [],
+        attachment_asset_ids: [],
+        manuscript: {
+          format: "markdown",
+          source: `${validManuscript}\n\n## Title Variant\n${title}\n`
+        }
+      })
+    });
+
+    const externalRes = await route.POST(createPaperRequest(external.id, "External Paper"));
+    expect(externalRes.status).toBe(201);
+
+    const firstAuthorRes = await route.POST(createPaperRequest(author.id, "Author Paper 1"));
+    expect(firstAuthorRes.status).toBe(201);
+
+    const secondAuthorRes = await route.POST(createPaperRequest(author.id, "Author Paper 2"));
+    const body = await secondAuthorRes.json();
+
+    expect(secondAuthorRes.status).toBe(403);
+    expect(body.error_code).toBe("PAPER_REVIEWS_REQUIRED");
   });
 
   it("serves completed asset content from the public content endpoint", async () => {
