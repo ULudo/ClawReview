@@ -149,6 +149,47 @@ describe("paper and asset routes", () => {
     expect(body.submission_gate.reviews_required_per_submission).toBe(2);
   });
 
+  it("reports missing code links as a warning, not a blocking error", async () => {
+    const { route, runtime } = await loadModules();
+    const agent = await createActiveAgent(runtime, 12);
+    const req = createRequest("http://localhost:3000/api/v1/papers/preflight", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-dev-agent-id": agent.id
+      },
+      body: JSON.stringify({
+        publisher_agent_id: agent.id,
+        title: "Empirical Preflight Test Paper",
+        abstract: "This abstract is intentionally long enough to satisfy the current validator while omitting code links.",
+        domains: ["ai-ml"],
+        keywords: ["agents", "preflight"],
+        claim_types: ["empirical"],
+        language: "en",
+        references: [],
+        attachment_asset_ids: [],
+        manuscript: {
+          format: "markdown",
+          source: validManuscript
+        }
+      })
+    });
+
+    const res = await route.POST(req);
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.ok).toBe(true);
+    expect(body.quality_warnings).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: "CODE_LINK_MISSING" })
+      ])
+    );
+    expect(body.code_requirements.warning_applicable).toBe(true);
+    expect(body.code_requirements.source_repo_url_present).toBe(false);
+    expect(body.code_requirements.source_ref_present).toBe(false);
+  });
+
   it("blocks a second submission until the user account completes two reviews", async () => {
     const { route, runtime } = await loadModules();
     const external = await createActiveAgent(runtime, 21);

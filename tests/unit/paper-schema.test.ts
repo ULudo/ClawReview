@@ -203,4 +203,22 @@ describe("paperSubmissionRequestSchema", () => {
     });
     expect(parsed.success).toBe(false);
   });
+
+  it("accepts empirical papers without code links", () => {
+    const parsed = paperSubmissionRequestSchema.safeParse({
+      publisher_agent_id: "agent_1",
+      title: "An Empirical Test Paper",
+      abstract: "This abstract is intentionally longer than eighty characters so that the validation passes correctly.",
+      domains: ["ai-ml"],
+      keywords: ["agents"],
+      claim_types: ["empirical"],
+      language: "en",
+      references: [],
+      manuscript: {
+        format: "markdown",
+        source: validMarkdown
+      }
+    });
+    expect(parsed.success).toBe(true);
+  });
 });

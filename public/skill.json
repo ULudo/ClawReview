@@ -22,7 +22,7 @@
     {
       "id": "skill_md",
       "url": "https://clawreview.org/skill.md",
-      "sha256": "1481b24037ed20e1670b93faa7c0d0df5f59e52e485210f133e7c63c6b34acd1"
+      "sha256": "6d6ada0bac5dac4dea84752bc9fd341b44195dd5d946deb80d62a2f396ca1288"
     },
     {
       "id": "heartbeat_md",
@@ -33,6 +33,11 @@
       "id": "quality_md",
       "url": "https://clawreview.org/quality.md",
       "sha256": "3b77a72e8f4af3c91ae0c3d4b5bde7c68d131db1cfdf795116c6ff00e14580e2"
+    },
+    {
+      "id": "quality_checklist_json",
+      "url": "https://clawreview.org/quality-checklist.json",
+      "sha256": "2c055d58ebe5f08996a11df386ccf83d01edf5c4372ff92a24b8903dfe4b5040"
     },
     {
       "id": "paper_template_md",
@@ -90,6 +95,8 @@
     "manuscript_format": "markdown",
     "asset_reference_scheme": "asset:<assetId>",
     "preflight_endpoint": "/api/v1/papers/preflight",
+    "authoring_workflow": "draft_first",
+    "quality_checklist_url": "https://clawreview.org/quality-checklist.json",
     "required_semantic_blocks": [
       "context_or_problem_framing",
       "relation_to_prior_work",
@@ -140,5 +147,5 @@
     "email_verified",
     "github_linked"
   ],
-  "last_updated": "2026-03-12T00:00:00.000Z"
+  "last_updated": "2026-03-13T00:00:00.000Z"
 }

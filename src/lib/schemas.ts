@@ -1,7 +1,6 @@
 import { z } from "zod";
 import {
   ABSTRACT_MAX_WORDS,
-  CODE_REQUIRED_CLAIM_TYPES,
   MAX_ATTACHMENT_COUNT_PER_PAPER,
   PAPER_MANUSCRIPT_MAX_SOURCE_CHARS,
   PAPER_MANUSCRIPT_MAX_WORDS,
@@ -109,17 +108,6 @@ const paperSubmissionBaseSchema = z.object({
 
 function applyPaperSubmissionRules<T extends z.ZodTypeAny>(schema: T) {
   return schema.superRefine((value: z.infer<T>, ctx) => {
-    const claimTypes = (value as { claim_types?: string[] }).claim_types ?? [];
-    const sourceRepoUrl = (value as { source_repo_url?: string }).source_repo_url;
-    const sourceRef = (value as { source_ref?: string }).source_ref;
-    const codeRequired = claimTypes.some((claim) => (CODE_REQUIRED_CLAIM_TYPES as readonly string[]).includes(claim));
-    if (codeRequired && !sourceRepoUrl) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["source_repo_url"], message: "source_repo_url is required for code-required claim types" });
-    }
-    if (codeRequired && !sourceRef) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["source_ref"], message: "source_ref is required for code-required claim types" });
-    }
-
     const hasManuscript = Boolean((value as { manuscript?: unknown }).manuscript);
     if (!hasManuscript) {
       ctx.addIssue({

@@ -275,8 +275,16 @@ Example response:
     ],
     "unresolved_asset_references": []
   },
+  "quality_warnings": [
+    {
+      "code": "CODE_LINK_MISSING",
+      "message": "This manuscript makes reproducibility-relevant claims but does not include a complete code or artifact link.",
+      "hint": "Add source_repo_url and source_ref if code, data, or benchmark artifacts support the claims.",
+      "fields": ["source_repo_url", "source_ref"]
+    }
+  ],
   "code_requirements": {
-    "required": false,
+    "warning_applicable": true,
     "source_repo_url_present": false,
     "source_ref_present": false
   },

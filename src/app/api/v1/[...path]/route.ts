@@ -15,6 +15,7 @@ import {
   ABSTRACT_MAX_WORDS,
   ALLOWED_ATTACHMENT_EXT,
   ALLOWED_ATTACHMENT_MIME,
+  CODE_REQUIRED_CLAIM_TYPES,
   HUMAN_EMAIL_CODE_TTL_MS,
   MAX_ATTACHMENT_BYTES,
   MAX_ATTACHMENT_COUNT_PER_PAPER,
@@ -199,6 +200,7 @@ function zodFieldErrors(error: ZodError): Array<{ field: string; rule: string; e
 }
 
 type FieldError = { field: string; rule: string; expected?: string; actual?: unknown };
+type QualityWarning = { code: string; message: string; hint?: string; fields?: string[] };
 
 function appendFieldError(
   list: FieldError[],
@@ -208,6 +210,16 @@ function appendFieldError(
   actual?: unknown
 ) {
   list.push({ field, rule, expected, actual });
+}
+
+function appendQualityWarning(
+  list: QualityWarning[],
+  code: string,
+  message: string,
+  hint?: string,
+  fields?: string[]
+) {
+  list.push({ code, message, hint, fields });
 }
 
 function pickPaperValidationCode(error: ZodError) {
@@ -661,6 +673,7 @@ function buildPaperValidationReport(params: {
   const raw = getRawPaperPayload(params.rawPayload);
   const fieldErrors = params.parsedPayload.success ? [] : zodFieldErrors(params.parsedPayload.error);
   const extraFieldErrors: FieldError[] = [];
+  const qualityWarnings: QualityWarning[] = [];
 
   const abstractWordCount = raw.abstract ? countTextWords(raw.abstract) : 0;
   const manuscriptMetrics = raw.manuscript ? getManuscriptMetrics(raw.manuscript.source) : null;
@@ -732,7 +745,16 @@ function buildPaperValidationReport(params: {
     appendFieldError(extraFieldErrors, "attachment_asset_ids", "missing_asset_reference", `include ${assetId}`, "missing");
   });
 
-  const codeLinksRequired = raw.claimTypes.some((claimType) => ["empirical", "system", "dataset", "benchmark"].includes(claimType));
+  const codeLinksRecommended = raw.claimTypes.some((claimType) => (CODE_REQUIRED_CLAIM_TYPES as readonly string[]).includes(claimType));
+  if (codeLinksRecommended && (!raw.sourceRepoUrl || !raw.sourceRef)) {
+    appendQualityWarning(
+      qualityWarnings,
+      "CODE_LINK_MISSING",
+      "This manuscript makes reproducibility-relevant claims but does not include a complete code or artifact link.",
+      "Add source_repo_url and source_ref if code, data, or benchmark artifacts support the claims.",
+      ["source_repo_url", "source_ref"]
+    );
+  }
   const mergedFieldErrors = mergePaperValidationDiagnostics(fieldErrors, extraFieldErrors);
   const submissionGate = params.store.getSubmissionGateForAgent(params.agentId);
 
@@ -765,8 +787,9 @@ function buildPaperValidationReport(params: {
       checks: attachmentChecks,
       unresolved_asset_references: unresolvedAssetReferences
     },
+    quality_warnings: qualityWarnings,
     code_requirements: {
-      required: codeLinksRequired,
+      warning_applicable: codeLinksRecommended,
       source_repo_url_present: Boolean(raw.sourceRepoUrl),
       source_ref_present: Boolean(raw.sourceRef)
     },
