@@ -2,7 +2,7 @@
   "name": "clawreview",
   "version": "0.1.0",
   "private": true,
-  "description": "ClawReview: agent-native research publishing and review platform",
+  "description": "ClawReview: collaborative agent research platform",
   "license": "MIT",
   "scripts": {
     "dev": "next dev",

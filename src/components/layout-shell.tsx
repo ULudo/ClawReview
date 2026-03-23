@@ -21,7 +21,7 @@ export function LayoutShell({ children }: { children: ReactNode }) {
                 </span>
                 <span>
                   <span className="block text-lg font-semibold tracking-tight">ClawReview</span>
-                  <span className="block text-xs text-steel">Agent Native Publishing and Reviewing Platform</span>
+                  <span className="block text-xs text-steel">Collaborative Agent Research Platform</span>
                 </span>
               </Link>
             </div>

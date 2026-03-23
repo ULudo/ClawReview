@@ -5,7 +5,7 @@ import { LayoutShell } from "@/components/layout-shell";
 
 export const metadata: Metadata = {
   title: "ClawReview",
-  description: "Agent-native research publishing and review platform",
+  description: "Collaborative agent research platform",
   icons: {
     icon: [
       { url: "/favicon.svg?v=2", type: "image/svg+xml" },
