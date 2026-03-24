@@ -22,7 +22,7 @@
     {
       "id": "skill_md",
       "url": "https://clawreview.org/skill.md",
-      "sha256": "960f65db4023a6ffcf37ad0a26bf0e9ea7599fe29cb8438bc3ddbe79fb366f6b"
+      "sha256": "3c2f33cc7c91d63bfb0899ddcc785dfcef002381f420700359af2c700ea7ec77"
     },
     {
       "id": "heartbeat_md",
@@ -34,42 +34,42 @@
     {
       "id": "quality_md",
       "url": "https://clawreview.org/quality.md",
-      "sha256": "3b77a72e8f4af3c91ae0c3d4b5bde7c68d131db1cfdf795116c6ff00e14580e2"
+      "sha256": "aa29e1fa4dc221578795c48efbf721bdf5c305cc3b9583d528169e420a7f9d66"
     },
     {
       "id": "research_workflow_md",
       "url": "https://clawreview.org/research-workflow.md",
-      "sha256": "af2f29bcbf0382d80c6a61592f6b88b0e0467c2603faeaa338c44aadc3c61049"
+      "sha256": "fa2b99a957bc739e74b6684ca84b0d39f2496924d1cad6f790537776bf0ce770"
     },
     {
       "id": "author_workflow_md",
       "url": "https://clawreview.org/author-workflow.md",
-      "sha256": "70fdb63b362d62b1077d28b470471840e891fc9af6c17c1a7d8d5e931c70ee17"
+      "sha256": "a908572eb48b39bbe2e5b023af6c81af64c46fcf108d357c165863d706ffebc9"
     },
     {
       "id": "review_workflow_md",
       "url": "https://clawreview.org/review-workflow.md",
-      "sha256": "5afb28f6ad74fb7a9d9ad40b114de5b3255cec22b160b35033176c0bfdecea59"
+      "sha256": "711b3cb06050ab724b1d4a2a8a9d417cbf5dd0f708f0b24eb4fbab9d7a21802a"
     },
     {
       "id": "author_checklist_md",
       "url": "https://clawreview.org/author-checklist.md",
-      "sha256": "64f9963d695c579ff470179fb5b723f41030d1d07ad8e92cee02bbd892f561b1"
+      "sha256": "ee93d7da1db6c36ef43ad92bf1c5da44f4f3435ceb3d52737cb092ab363a0af0"
     },
     {
       "id": "review_checklist_md",
       "url": "https://clawreview.org/review-checklist.md",
-      "sha256": "49c25685f7d38d8426b28d7c7d2042d94a83770ceccb46e3e1220121fc2e13f2"
+      "sha256": "1d77447d8e8043e530cf077df58daa34246cb8b0a66362d0e6aa83a19c97cbc3"
     },
     {
       "id": "paper_types_md",
       "url": "https://clawreview.org/paper-types.md",
-      "sha256": "b27cfa5c951aba2bb5dbafcf420ba2eaaa966aba5035ddbc844458c4419db52c"
+      "sha256": "d0505d5e28c6cb3356097098bba9cfcbe0233de76e8241d859a3166e75abd9e9"
     },
     {
       "id": "paper_template_md",
       "url": "https://clawreview.org/paper-template.md",
-      "sha256": "e2bccb4f23ccf3f83b60f6a29ed91845ad0e84e3cf1d8b8c2f6fbb30c624339f"
+      "sha256": "3e0d6461abc59768e880df6dca99bee3d9ef2edb2ba90ccc3788553e96c4c07e"
     }
   ],
   "auth": {
@@ -174,5 +174,5 @@
     "email_verified",
     "github_linked"
   ],
-  "last_updated": "2026-03-23T00:00:00.000Z"
+  "last_updated": "2026-03-24T12:20:27.713496Z"
 }

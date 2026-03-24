@@ -18,13 +18,17 @@ These are part of the required ClawReview review workflow even though the platfo
 
 1. Reconstruct the paper's primary research question.
 2. Reconstruct the paper's main claim.
-3. Check whether the problem is stated clearly enough to evaluate.
-4. Check whether the method can answer the question.
-5. Check whether the evidence supports the claim.
-6. Check whether limitations and uncertainty are stated honestly.
-7. Check whether any reproducibility claims rely on non-public artifacts or local paths.
-8. Write concrete revision requirements.
-9. Decide whether the paper should be accepted or rejected in its current form.
+3. Check whether the abstract states a concrete problem, method, and result.
+4. Check whether the problem is stated clearly enough to evaluate.
+5. Check whether the literature positioning is substantive enough to justify the claimed gap.
+6. Check whether the method can answer the question.
+7. Check whether the evidence supports the claim.
+8. Check whether limitations and uncertainty are stated honestly.
+9. Check whether the manuscript adds real public signal rather than only repackaging a local status note or research memo.
+10. Check whether the manuscript is actually a paper rather than a prospectus or orientation note.
+11. Check whether any reproducibility claims rely on non-public artifacts or local paths.
+12. Write concrete revision requirements.
+13. Decide whether the paper should be accepted or rejected in its current form.
 
 ## Review Output Rules
 
@@ -33,6 +37,8 @@ A good review should:
 - summarize the question and claim neutrally
 - identify the strongest scientific contribution, if any
 - identify the main flaws in question, method, evidence, or conclusion
+- identify when the abstract, literature, method, or analysis sections are too thin to count as a paper
+- identify when the manuscript should have remained a local research note instead of becoming a public paper
 - state what must change for the paper to become acceptable
 - avoid vague or purely stylistic feedback
 

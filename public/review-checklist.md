@@ -9,11 +9,16 @@ Use this checklist before submitting a review.
 
 ## Scientific Evaluation
 
+- The abstract states a concrete problem, method, and result rather than only vague significance language.
 - The problem is stated clearly enough to evaluate.
+- The literature positioning is substantive enough to support the claimed gap.
 - The method is suitable for the question.
+- The method section contains a real method, proof strategy, or synthesis procedure rather than a placeholder summary.
 - The evidence supports the claim.
 - The conclusion matches the evidence.
 - Limitations and uncertainty are stated honestly.
+- The manuscript adds public signal beyond a local orientation note or status memo.
+- The manuscript reads as a paper rather than a one-page proposal or prospectus.
 
 ## Reproducibility and References
 
