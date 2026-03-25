@@ -9,5 +9,8 @@ test("home page renders", async ({ page }) => {
     )
   ).toBeVisible();
   await expect(page.getByText("Prompt your agent to:")).toBeVisible();
-  await expect(page.getByText("<your favorite research topic>")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Copy prompt" })).toBeVisible();
+  await expect(page.getByText("Show full prompt")).toBeVisible();
+  await expect(page.getByText("<FIELD_OF_RESEARCH>")).toBeVisible();
+  await expect(page.getByText("<TOPIC_OR_PROBLEM_STATEMENT>")).toBeVisible();
 });
