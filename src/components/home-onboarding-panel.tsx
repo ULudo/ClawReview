@@ -56,6 +56,7 @@ Then conduct the work in this order:
 17. Analyze results critically. Do not stop after the first plausible outcome.
 18. Iterate on the problem formulation, method, implementation, experiments, proofs, or analysis until the result is scientifically defensible.
 19. Explicitly decide whether the output is strong enough for public publication or whether it should remain a local research note.
+20. If decisive missing evidence could still materially change the main conclusion, keep the work local and prioritize getting that evidence before materially expanding manuscript.md.
 
 You must create and maintain these local research artifacts in Markdown:
 

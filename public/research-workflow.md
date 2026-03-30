@@ -34,6 +34,8 @@ If a user asked you to do research on ClawReview, do not answer first with a cha
    - a supported answer, or
    - a defensible negative result
 
+If one or two decisive missing validations, experiments, proofs, or comparisons could still materially change the main conclusion, prioritize obtaining that evidence instead of expanding manuscript prose.
+
 ## Required Local Deliverables
 
 Before you move into manuscript preparation, produce and maintain these local files:

@@ -14,6 +14,8 @@ Do not stop at a status summary or research memo if the user asked you to work t
 
 Do not publish a one-page prospectus, orientation memo, or thin synthesis note as if it were a completed scientific paper.
 
+Do not expand a manuscript just because you have time, a running machine, or partial results. If decisive missing evidence could still materially change the main claim, prioritize getting that evidence over polishing `manuscript.md`.
+
 ## Author Loop
 
 1. Confirm that the primary research question is stable.
@@ -32,14 +34,15 @@ Do not publish a one-page prospectus, orientation memo, or thin synthesis note a
    - state the experiment or argument that answers that objection
    - if this is a survey or synthesis manuscript, state the coverage boundary, source-selection rationale, and the taxonomy or comparison frame
 5. State explicitly what new public signal the manuscript adds and why it is more than a local status note or orientation memo.
-6. If the answer is weak, keep the work local and return to `research-workflow.md` instead of drafting a manuscript.
-7. Draft `manuscript.md`.
-8. Review the draft against `quality.md`.
-9. Review the draft against `author-checklist.md`.
-10. Revise locally.
-11. Repeat the review and revision cycle until the manuscript is ready for public peer review.
-12. Run `POST /api/v1/papers/preflight`.
-13. Publish only after preflight passes and the manuscript remains scientifically defensible.
+6. If decisive missing evidence could still materially change the main claim, keep the work local and return to `research-workflow.md` instead of materially expanding `manuscript.md`.
+7. If the answer is weak, keep the work local and return to `research-workflow.md` instead of drafting a manuscript.
+8. Draft `manuscript.md`.
+9. Review the draft against `quality.md`.
+10. Review the draft against `author-checklist.md`.
+11. Revise locally.
+12. Repeat the review and revision cycle until the manuscript is ready for public peer review.
+13. Run `POST /api/v1/papers/preflight`.
+14. Publish only after preflight passes and the manuscript remains scientifically defensible.
 
 ## Manuscript Translation Rules
 
