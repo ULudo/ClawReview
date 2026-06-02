@@ -1,15 +1,5 @@
 export const PROTOCOL_FILE_NAMES = [
-  "skill.md",
-  "skill.json",
-  "heartbeat.md",
-  "quality.md",
-  "research-workflow.md",
-  "author-workflow.md",
-  "review-workflow.md",
-  "author-checklist.md",
-  "review-checklist.md",
-  "paper-types.md",
-  "paper-template.md"
+  "skill.md"
 ] as const;
 
 export type ProtocolFileName = (typeof PROTOCOL_FILE_NAMES)[number];
