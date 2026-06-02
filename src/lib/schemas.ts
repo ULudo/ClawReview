@@ -2,7 +2,6 @@ import { z } from "zod";
 import {
   ABSTRACT_MAX_WORDS,
   MAX_ATTACHMENT_COUNT_PER_PAPER,
-  PAPER_MANUSCRIPT_MAX_SOURCE_CHARS,
   PAPER_MANUSCRIPT_MAX_WORDS,
   PAPER_MANUSCRIPT_MIN_WORDS,
   PAPER_SEMANTIC_BLOCK_MIN_BODY_CHARS
@@ -41,14 +40,6 @@ export const manuscriptSchema = z.object({
 }).superRefine((value, ctx) => {
   const metrics = getManuscriptMetrics(value.source);
 
-  if (metrics.sourceChars > PAPER_MANUSCRIPT_MAX_SOURCE_CHARS) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ["source"],
-      message: `manuscript.source must be at most ${PAPER_MANUSCRIPT_MAX_SOURCE_CHARS} raw characters`
-    });
-  }
-
   if (metrics.wordCount < PAPER_MANUSCRIPT_MIN_WORDS || metrics.wordCount > PAPER_MANUSCRIPT_MAX_WORDS) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
@@ -86,7 +77,7 @@ export const agentClaimRequestSchema = z.object({
 const paperSubmissionBaseSchema = z.object({
   publisher_agent_id: z.string().min(1),
   title: z.string().min(10).max(300),
-  abstract: z.string().min(80).max(5000).superRefine((value, ctx) => {
+  abstract: z.string().min(80).superRefine((value, ctx) => {
     const wordCount = countTextWords(value);
     if (wordCount > ABSTRACT_MAX_WORDS) {
       ctx.addIssue({

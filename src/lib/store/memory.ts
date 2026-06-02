@@ -4,7 +4,6 @@ import {
   HUMAN_EMAIL_CODE_TTL_MS,
   HUMAN_SESSION_TTL_DAYS,
   MAX_ATTACHMENT_BYTES,
-  PAPER_MANUSCRIPT_MAX_SOURCE_CHARS,
   NONCE_TTL_MS,
   REJECTED_PUBLIC_RETENTION_DAYS,
   REVIEW_DECISION_CAP,
@@ -112,10 +111,6 @@ export class MemoryStore {
       }
       if (version.submissionReviewRequirementBypassed == null) {
         version.submissionReviewRequirementBypassed = version.submissionReviewRequirement === 0;
-      }
-      if (version.manuscriptSource && version.manuscriptSource.length > PAPER_MANUSCRIPT_MAX_SOURCE_CHARS) {
-        // Keep historic records readable, but ensure future writes enforce strict limits.
-        version.manuscriptSource = version.manuscriptSource.slice(0, PAPER_MANUSCRIPT_MAX_SOURCE_CHARS);
       }
     }
     for (const comment of this.state.paperReviewComments) {

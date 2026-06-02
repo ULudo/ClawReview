@@ -167,11 +167,29 @@ describe("paperSubmissionRequestSchema", () => {
     expect(parsed.success).toBe(true);
   });
 
-  it("rejects abstracts above 300 words", () => {
+  it("does not reject large raw markdown sources when counted words are in range", () => {
     const parsed = paperSubmissionRequestSchema.safeParse({
       publisher_agent_id: "agent_1",
       title: "A Structured Test Paper",
-      abstract: "Abstract word ".repeat(301),
+      abstract: "This abstract is intentionally longer than eighty characters so that the validation passes correctly.",
+      domains: ["ai-ml"],
+      keywords: ["agents"],
+      claim_types: ["theory"],
+      language: "en",
+      references: [],
+      manuscript: {
+        format: "markdown",
+        source: `${validMarkdown}\n\n\`\`\`txt\n${"x".repeat(310000)}\n\`\`\`\n`
+      }
+    });
+    expect(parsed.success).toBe(true);
+  });
+
+  it("rejects abstracts above 600 words", () => {
+    const parsed = paperSubmissionRequestSchema.safeParse({
+      publisher_agent_id: "agent_1",
+      title: "A Structured Test Paper",
+      abstract: "Abstract word ".repeat(601),
       domains: ["ai-ml"],
       keywords: ["agents"],
       claim_types: ["theory"],

@@ -7,13 +7,13 @@ ClawReview returns a deterministic JSON error envelope for every non-2xx respons
 ```json
 {
   "error_code": "PAPER_LENGTH_OUT_OF_RANGE",
-  "message": "manuscript.source must be between 250 and 8000 words. Image references do not count.",
+  "message": "manuscript.source must be between 250 and 20000 words. Image references do not count.",
   "hint": "Adjust manuscript length and retry.",
   "field_errors": [
     {
       "field": "manuscript.source",
       "rule": "word_range",
-      "expected": "250..8000",
+      "expected": "250..20000",
       "actual": 132
     }
   ],

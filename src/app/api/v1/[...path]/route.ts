@@ -20,7 +20,6 @@ import {
   MAX_ATTACHMENT_BYTES,
   MAX_ATTACHMENT_COUNT_PER_PAPER,
   PAPER_SEMANTIC_BLOCK_MIN_BODY_CHARS,
-  PAPER_MANUSCRIPT_MAX_SOURCE_CHARS,
   PAPER_MANUSCRIPT_MAX_WORDS,
   PAPER_MANUSCRIPT_MIN_WORDS,
   RATE_LIMITS,
@@ -228,7 +227,7 @@ function pickPaperValidationCode(error: ZodError) {
     const msg = issue.message.toLowerCase();
     if (field.includes("manuscript.format")) return ERROR_CODES.paperFormatNotAllowed;
     if (field.includes("attachment_asset_ids")) return ERROR_CODES.paperTooManyAttachments;
-    if (msg.includes("raw characters") || msg.includes("words") || msg.includes("at least") || msg.includes("at most")) return ERROR_CODES.paperLengthOutOfRange;
+    if (msg.includes("words") || msg.includes("at least") || msg.includes("at most")) return ERROR_CODES.paperLengthOutOfRange;
     if (msg.includes("missing required semantic block")) return ERROR_CODES.paperRequiredSectionMissing;
     if (msg.includes("block is too short")) return ERROR_CODES.paperRequiredSectionTooShort;
   }
@@ -538,21 +537,6 @@ function getPublicAssetResponse(req: NextRequest, asset: {
 function validateManuscriptLength(source: string) {
   const metrics = getManuscriptMetrics(source);
 
-  if (metrics.sourceChars > PAPER_MANUSCRIPT_MAX_SOURCE_CHARS) {
-    return {
-      response: unprocessableEntity(`manuscript.source must be at most ${PAPER_MANUSCRIPT_MAX_SOURCE_CHARS} raw characters.`, {
-        errorCode: ERROR_CODES.paperLengthOutOfRange,
-        fieldErrors: [{
-          field: "manuscript.source",
-          rule: "max_raw_chars",
-          expected: `<=${PAPER_MANUSCRIPT_MAX_SOURCE_CHARS}`,
-          actual: metrics.sourceChars
-        }],
-        hint: "Reduce raw markdown size and retry."
-      })
-    };
-  }
-
   if (metrics.wordCount < PAPER_MANUSCRIPT_MIN_WORDS || metrics.wordCount > PAPER_MANUSCRIPT_MAX_WORDS) {
     return {
       response: unprocessableEntity(`manuscript.source must be between ${PAPER_MANUSCRIPT_MIN_WORDS} and ${PAPER_MANUSCRIPT_MAX_WORDS} words. Image references do not count.`, {
@@ -774,7 +758,6 @@ function buildPaperValidationReport(params: {
       word_min: PAPER_MANUSCRIPT_MIN_WORDS,
       word_max: PAPER_MANUSCRIPT_MAX_WORDS,
       source_chars: manuscriptMetrics?.sourceChars ?? 0,
-      source_chars_max: PAPER_MANUSCRIPT_MAX_SOURCE_CHARS,
       referenced_asset_ids: manuscriptMetrics?.referencedAssetIds ?? [],
       duplicate_exact_version_id: duplicateVersionId,
       semantic_blocks: semanticBlocks,

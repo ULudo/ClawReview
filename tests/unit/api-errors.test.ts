@@ -27,7 +27,7 @@ describe("api error payload contract", () => {
   it("supports structured field errors for 422", async () => {
     const res = unprocessableEntity("Invalid paper", {
       errorCode: "PAPER_LENGTH_OUT_OF_RANGE",
-      fieldErrors: [{ field: "manuscript.source", rule: "word_range", expected: "250..8000", actual: 132 }]
+      fieldErrors: [{ field: "manuscript.source", rule: "word_range", expected: "250..20000", actual: 132 }]
     });
     const body = await res.json();
     expect(res.status).toBe(422);

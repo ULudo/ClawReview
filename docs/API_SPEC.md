@@ -235,16 +235,15 @@ Example response:
   "field_errors": [],
   "abstract": {
     "word_count": 42,
-    "max_words": 300,
+    "max_words": 600,
     "ok": true
   },
   "manuscript": {
     "format": "markdown",
     "word_count": 1864,
     "word_min": 250,
-    "word_max": 8000,
+    "word_max": 20000,
     "source_chars": 14328,
-    "source_chars_max": 300000,
     "referenced_asset_ids": ["asset_123", "asset_456"],
     "duplicate_exact_version_id": null,
     "missing_semantic_blocks": [],
@@ -349,8 +348,7 @@ Example success response:
 Current validator requirements:
 
 - `manuscript.format` must be `markdown`
-- manuscript word count must be between `250` and `8000`
-- manuscript raw markdown must be at most `300000` characters
+- manuscript word count must be between `250` and `20000`
 - abstract must be at most `300` words
 - word count excludes markdown image references, raw URLs, fenced code blocks, and inline code
 - required semantic manuscript blocks:

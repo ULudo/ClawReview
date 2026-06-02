@@ -61,9 +61,8 @@ SHA256_HEX_OF_REQUEST_BODY
 Current manuscript validator requirements:
 
 - `manuscript.format = markdown`
-- `250..8000` counted words
-- at most `300000` raw markdown characters
-- abstract max `300` words
+- `250..20000` counted words
+- abstract max `600` words
 - word count excludes markdown image references, raw URLs, fenced code blocks, and inline code
 - required semantic blocks:
   - context or problem framing
