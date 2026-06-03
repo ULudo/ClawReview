@@ -41,14 +41,23 @@ import {
   agentVerifyChallengeRequestSchema,
   assetCompleteRequestSchema,
   assetInitRequestSchema,
+  communityPostSubmissionSchema,
   humanAuthStartEmailRequestSchema,
   humanAuthVerifyEmailRequestSchema,
   operatorReasonSchema,
   paperSubmissionRequestSchema,
   paperReviewCommentSubmissionSchema,
-  paperVersionRequestSchema
+  paperVersionRequestSchema,
+  starRequestSchema
 } from "@/lib/schemas";
-import { getPublicHumanIdentity, getPublicPaperListItems, getPublicReviewComment, getPublicUserProfile, listPublicUserSummaries } from "@/lib/public-view";
+import {
+  getPublicCommunityPostListItems,
+  getPublicHumanIdentity,
+  getPublicPaperListItems,
+  getPublicReviewComment,
+  getPublicUserProfile,
+  listPublicUserSummaries
+} from "@/lib/public-view";
 import { getRuntimeStore, persistRuntimeStore } from "@/lib/store/runtime";
 import { parseHostname, randomId } from "@/lib/utils";
 import { assertEd25519PublicKeyFormat, parseSignedHeaders, verifyEd25519Signature, verifySignedRequest } from "@/lib/protocol/signatures";
@@ -845,8 +854,73 @@ export async function GET(req: NextRequest) {
       });
     }
 
+    if (segments.length === 1 && segments[0] === "account") {
+      const sessionState = requireHumanSession(req, store);
+      if (!sessionState.ok) return sessionState.response;
+      const humanId = sessionState.human.id;
+      const stars = store.listStarsForHuman(humanId);
+      const starredPapers = stars
+        .filter((star) => star.targetType === "paper")
+        .map((star) => store.getPaper(star.targetId))
+        .filter((paper): paper is Paper => Boolean(paper));
+      const starredPosts = stars
+        .filter((star) => star.targetType === "post")
+        .map((star) => store.getCommunityPost(star.targetId))
+        .filter((post): post is NonNullable<ReturnType<typeof store.getCommunityPost>> => Boolean(post));
+      const profile = getPublicUserProfile(store, humanId);
+      const publicHuman = getPublicHumanIdentity(store, humanId);
+      const submissionGate = store.getSubmissionGateForHuman(humanId);
+      return ok({
+        human: {
+          id: sessionState.human.id,
+          username: sessionState.human.username,
+          email: sessionState.human.email,
+          emailVerified: Boolean(sessionState.human.emailVerifiedAt),
+          githubLinked: Boolean(sessionState.human.githubVerifiedAt),
+          githubLogin: sessionState.human.githubLogin ?? null
+        },
+        agents: store.listAgentsForHuman(humanId),
+        papers: getPublicPaperListItems(store, store.listPapersForHuman(humanId)),
+        posts: getPublicCommunityPostListItems(store, store.listCommunityPosts({ authorHumanId: humanId })),
+        profile: profile || publicHuman ? {
+          ...(profile ?? {
+            human: publicHuman,
+            summary: {
+              humanId: sessionState.human.id,
+              username: sessionState.human.username,
+              githubLogin: sessionState.human.githubLogin,
+              paperCount: 0,
+              reviewCount: 0,
+              underReviewCount: 0,
+              revisionRequiredCount: 0,
+              acceptedCount: 0,
+              rejectedCount: 0,
+              postCount: 0
+            },
+            posts: [],
+            papers: [],
+            reviews: []
+          }),
+          outstandingReviewCount: submissionGate?.outstandingReviewCount ?? 0,
+          reviewRequirementSatisfied: (submissionGate?.outstandingReviewCount ?? 0) === 0
+        } : null,
+        starred_papers: getPublicPaperListItems(store, starredPapers),
+        starred_posts: getPublicCommunityPostListItems(store, starredPosts)
+      });
+    }
+
     if (segments.length === 1 && segments[0] === "users") {
       return ok({ users: listPublicUserSummaries(store) });
+    }
+
+    if (segments.length === 1 && segments[0] === "posts") {
+      return ok({ posts: getPublicCommunityPostListItems(store, store.listCommunityPosts()) });
+    }
+
+    if (segments.length === 2 && segments[0] === "posts") {
+      const post = getPublicCommunityPostListItems(store, store.listCommunityPosts()).find((item) => item.post.id === segments[1]) ?? null;
+      if (!post) return notFound("Post not found");
+      return ok(post);
     }
 
     if (segments.length === 2 && segments[0] === "users") {
@@ -1117,6 +1191,14 @@ export async function POST(req: NextRequest) {
         });
       }
 
+      const existingHuman = store.findHumanByEmail(parsed.data.email);
+      if (!existingHuman && !parsed.data.username?.trim()) {
+        return unprocessableEntity("Username is required for new accounts", {
+          errorCode: ERROR_CODES.unprocessableEntity,
+          fieldErrors: [{ field: "username", rule: "required_for_new_account" }]
+        });
+      }
+
       const started = store.startHumanEmailVerification(parsed.data.email, parsed.data.username);
       const unsignedDev = shouldAllowUnsignedDev();
       if (!unsignedDev) {
@@ -1197,6 +1279,86 @@ export async function POST(req: NextRequest) {
       const res = ok({ logged_out: true });
       setHumanSessionCookie(res, "", { clear: true });
       return res;
+    }
+
+    if (segments.length === 1 && segments[0] === "posts") {
+      const sessionState = requireHumanSession(req, store);
+      if (!sessionState.ok) return sessionState.response;
+      if (!sessionState.human.githubVerifiedAt) {
+        return forbidden("GitHub account must be linked before publishing posts", {
+          errorCode: ERROR_CODES.githubNotLinked,
+          hint: "Connect GitHub from the account page first."
+        });
+      }
+
+      const parsed = communityPostSubmissionSchema.safeParse(parseJsonBody<unknown>(bodyText || "{}"));
+      if (!parsed.success) {
+        return unprocessableEntity("Invalid post payload", {
+          errorCode: ERROR_CODES.unprocessableEntity,
+          fieldErrors: zodFieldErrors(parsed.error)
+        });
+      }
+
+      const payload = parsed.data;
+      const post = store.createCommunityPost({
+        authorHumanId: sessionState.human.id,
+        title: payload.title,
+        bodyMarkdown: payload.body_markdown,
+        tags: Array.from(new Set(payload.tags.map((tag) => tag.trim()).filter(Boolean)))
+      });
+      await persistRuntimeStore(store);
+      return created({
+        post,
+        authorHuman: getPublicHumanIdentity(store, post.authorHumanId)
+      });
+    }
+
+    if (segments.length === 1 && segments[0] === "stars") {
+      const sessionState = requireHumanSession(req, store);
+      if (!sessionState.ok) return sessionState.response;
+      if (!sessionState.human.githubVerifiedAt) {
+        return forbidden("GitHub account must be linked before starring content", {
+          errorCode: ERROR_CODES.githubNotLinked,
+          hint: "Connect GitHub from the account page first."
+        });
+      }
+      const parsed = starRequestSchema.safeParse(parseJsonBody<unknown>(bodyText || "{}"));
+      if (!parsed.success) {
+        return unprocessableEntity("Invalid star payload", {
+          errorCode: ERROR_CODES.unprocessableEntity,
+          fieldErrors: zodFieldErrors(parsed.error)
+        });
+      }
+      const targetExists = parsed.data.target_type === "paper"
+        ? Boolean(store.getPaper(parsed.data.target_id))
+        : Boolean(store.getCommunityPost(parsed.data.target_id));
+      if (!targetExists) return notFound("Star target not found");
+      const star = store.starTarget({
+        humanId: sessionState.human.id,
+        targetType: parsed.data.target_type,
+        targetId: parsed.data.target_id
+      });
+      await persistRuntimeStore(store);
+      return ok({ starred: true, star });
+    }
+
+    if (segments.length === 2 && segments[0] === "stars" && segments[1] === "remove") {
+      const sessionState = requireHumanSession(req, store);
+      if (!sessionState.ok) return sessionState.response;
+      const parsed = starRequestSchema.safeParse(parseJsonBody<unknown>(bodyText || "{}"));
+      if (!parsed.success) {
+        return unprocessableEntity("Invalid star payload", {
+          errorCode: ERROR_CODES.unprocessableEntity,
+          fieldErrors: zodFieldErrors(parsed.error)
+        });
+      }
+      const removed = store.unstarTarget({
+        humanId: sessionState.human.id,
+        targetType: parsed.data.target_type,
+        targetId: parsed.data.target_id
+      });
+      await persistRuntimeStore(store);
+      return ok({ starred: false, removed });
     }
 
     if (segments.length === 2 && segments[0] === "assets" && segments[1] === "init") {

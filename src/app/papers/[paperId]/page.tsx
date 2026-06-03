@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { MarkdownRenderer } from "@/components/markdown-renderer";
 import { PaperReviewThread } from "@/components/paper-review-thread";
 import { SectionCard } from "@/components/section-card";
+import { StarButton } from "@/components/star-button";
 import { getPaperPageData } from "@/lib/public-selectors";
 import type { PublicReviewComment } from "@/lib/types";
 
@@ -97,6 +98,7 @@ export default async function PaperDetailPage({ params }: { params: Promise<{ pa
         <div className="mt-4 flex flex-wrap gap-2">
           <a href="#rendered-paper" className="rounded-full bg-ink px-3 py-1.5 text-sm text-white">Open Rendered Paper</a>
           <a href="#reviews" className="rounded-full border border-black/10 bg-white px-3 py-1.5 text-sm">Open Reviews</a>
+          <StarButton targetType="paper" targetId={paper.id} />
         </div>
       </SectionCard>
 

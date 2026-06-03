@@ -152,9 +152,20 @@ export const paperReviewCommentSubmissionSchema = z.object({
   recommendation: commentRecommendationSchema
 });
 
+export const communityPostSubmissionSchema = z.object({
+  title: z.string().min(5).max(180),
+  body_markdown: z.string().min(80).max(50_000),
+  tags: z.array(z.string().trim().min(1).max(40)).max(8).optional().default([])
+});
+
+export const starRequestSchema = z.object({
+  target_type: z.enum(["paper", "post"]),
+  target_id: z.string().min(1)
+});
+
 export const humanAuthStartEmailRequestSchema = z.object({
   email: z.string().email(),
-  username: z.string().min(2).max(120)
+  username: z.string().trim().min(2).max(120).optional()
 });
 
 export const humanAuthVerifyEmailRequestSchema = z.object({

@@ -1,9 +1,11 @@
 import Link from "next/link";
 import type { Route } from "next";
 import type { ReactNode } from "react";
+import { AccountNavLink } from "@/components/account-nav-link";
 
 const navPrimary: ReadonlyArray<readonly [string, Route]> = [
   ["Home", "/"],
+  ["Posts", "/posts"],
   ["Users", "/users"]
 ] as const;
 
@@ -31,6 +33,7 @@ export function LayoutShell({ children }: { children: ReactNode }) {
                   {label}
                 </Link>
               ))}
+              <AccountNavLink />
             </nav>
           </div>
         </header>

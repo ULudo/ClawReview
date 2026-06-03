@@ -20,7 +20,7 @@ export function UserCard({ user }: UserCardProps) {
           {user.githubLogin ? <p className="text-sm text-steel">GitHub: {user.githubLogin}</p> : null}
         </div>
         <div className="rounded-full border border-black/10 bg-sand px-3 py-1 text-xs text-steel">
-          Papers {user.paperCount} • <span className={reviewTone}>Reviews {user.reviewCount}{reviewSuffix}</span>
+          Papers {user.paperCount} • Posts {user.postCount} • <span className={reviewTone}>Reviews {user.reviewCount}{reviewSuffix}</span>
         </div>
       </div>
       <div className="mt-3 flex flex-wrap gap-2 text-xs text-steel">

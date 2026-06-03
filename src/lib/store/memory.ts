@@ -19,11 +19,13 @@ import type {
   AssetRecord,
   AppState,
   AuditEvent,
+  CommunityPost,
   DecisionRecord,
   HumanEmailVerification,
   HumanGithubState,
   HumanIdentity,
   HumanSession,
+  StarTargetType,
   Paper,
   PaperVersion,
   RateLimitWindow
@@ -65,6 +67,8 @@ export class MemoryStore {
       papers: baseState.papers ?? [],
       paperVersions: baseState.paperVersions ?? [],
       paperReviewComments: baseState.paperReviewComments ?? [],
+      communityPosts: baseState.communityPosts ?? [],
+      userStars: baseState.userStars ?? [],
       decisions: baseState.decisions ?? [],
       guidelines: baseState.guidelines ?? [createDefaultGuideline()],
       domains: baseState.domains ?? DEFAULT_DOMAINS,
@@ -193,6 +197,33 @@ export class MemoryStore {
       .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   }
 
+  listCommunityPosts(options?: { authorHumanId?: string; includeHidden?: boolean }) {
+    return [...this.state.communityPosts]
+      .filter((post) => {
+        if (!options?.includeHidden && post.status !== "published") return false;
+        if (options?.authorHumanId && post.authorHumanId !== options.authorHumanId) return false;
+        return true;
+      })
+      .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+  }
+
+  getCommunityPost(postId: string, options?: { includeHidden?: boolean }) {
+    const post = this.state.communityPosts.find((item) => item.id === postId) ?? null;
+    if (!post) return null;
+    if (!options?.includeHidden && post.status !== "published") return null;
+    return post;
+  }
+
+  listStarsForHuman(humanId: string) {
+    return this.state.userStars
+      .filter((star) => star.humanId === humanId)
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  }
+
+  getStar(humanId: string, targetType: StarTargetType, targetId: string) {
+    return this.state.userStars.find((star) => star.humanId === humanId && star.targetType === targetType && star.targetId === targetId) ?? null;
+  }
+
   listEligibleReviewTargetsForAgent(agentId: string) {
     const agent = this.getAgent(agentId);
     if (!agent || agent.status !== "active") return [];
@@ -273,9 +304,9 @@ export class MemoryStore {
     return String(value).padStart(6, "0");
   }
 
-  startHumanEmailVerification(email: string, username: string) {
+  startHumanEmailVerification(email: string, username?: string) {
     const normalized = email.trim().toLowerCase();
-    const cleanUsername = username.trim();
+    const cleanUsername = username?.trim() ?? "";
     const now = nowIso();
     const code = this.generateEmailCode();
     const existing = this.findHumanByEmail(normalized);
@@ -825,6 +856,61 @@ export class MemoryStore {
     return this.state.paperVersions.find((version) => version.manuscriptSource && sha256Hex(version.manuscriptSource) === hash) ?? null;
   }
 
+  createCommunityPost(input: {
+    authorHumanId: string;
+    title: string;
+    bodyMarkdown: string;
+    tags?: string[];
+  }) {
+    const now = nowIso();
+    const post: CommunityPost = {
+      id: randomId("post"),
+      authorHumanId: input.authorHumanId,
+      title: input.title,
+      bodyMarkdown: input.bodyMarkdown,
+      tags: input.tags ?? [],
+      status: "published",
+      createdAt: now,
+      updatedAt: now
+    };
+    this.state.communityPosts.push(post);
+    this.audit({
+      actorType: "human_operator",
+      actorId: input.authorHumanId,
+      action: "community_post.created",
+      targetType: "community_post",
+      targetId: post.id
+    });
+    return post;
+  }
+
+  starTarget(input: { humanId: string; targetType: StarTargetType; targetId: string }) {
+    const existing = this.getStar(input.humanId, input.targetType, input.targetId);
+    if (existing) return existing;
+    const star = {
+      id: randomId("star"),
+      humanId: input.humanId,
+      targetType: input.targetType,
+      targetId: input.targetId,
+      createdAt: nowIso()
+    };
+    this.state.userStars.push(star);
+    this.audit({
+      actorType: "human_operator",
+      actorId: input.humanId,
+      action: "user_star.created",
+      targetType: input.targetType,
+      targetId: input.targetId
+    });
+    return star;
+  }
+
+  unstarTarget(input: { humanId: string; targetType: StarTargetType; targetId: string }) {
+    const before = this.state.userStars.length;
+    this.state.userStars = this.state.userStars.filter((star) => !(star.humanId === input.humanId && star.targetType === input.targetType && star.targetId === input.targetId));
+    return this.state.userStars.length < before;
+  }
+
   createPaperWithVersion(input: {
     publisherAgentId: string;
     publisherHumanId?: string;
@@ -1220,15 +1306,17 @@ export class MemoryStore {
 
 }
 
-let store: MemoryStore | null = null;
+const memoryStoreGlobal = globalThis as typeof globalThis & {
+  __clawreviewMemoryStore?: MemoryStore;
+};
 
 export function getStore(): MemoryStore {
-  if (!store) {
-    store = new MemoryStore();
+  if (!memoryStoreGlobal.__clawreviewMemoryStore) {
+    memoryStoreGlobal.__clawreviewMemoryStore = new MemoryStore();
   }
-  return store;
+  return memoryStoreGlobal.__clawreviewMemoryStore;
 }
 
 export function setStore(nextStore: MemoryStore) {
-  store = nextStore;
+  memoryStoreGlobal.__clawreviewMemoryStore = nextStore;
 }

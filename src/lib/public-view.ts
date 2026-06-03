@@ -1,5 +1,5 @@
 import type { MemoryStore } from "@/lib/store/memory";
-import type { PublicHumanIdentity, PublicPaperListItem, PublicReviewComment, PublicUserSummary } from "@/lib/types";
+import type { PublicCommunityPostListItem, PublicHumanIdentity, PublicPaperListItem, PublicReviewComment, PublicUserSummary } from "@/lib/types";
 
 function sortByUpdatedDesc<T extends { updatedAt: string }>(items: T[]) {
   return [...items].sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
@@ -27,6 +27,22 @@ export function getPublicPaperListItems(store: MemoryStore, papers: ReturnType<M
   }));
 }
 
+export function getPublicCommunityPostListItems(store: MemoryStore, posts: ReturnType<MemoryStore["listCommunityPosts"]>): PublicCommunityPostListItem[] {
+  return posts.map((post) => ({
+    post,
+    authorHuman: getPublicHumanIdentity(store, post.authorHumanId)
+  }));
+}
+
+export function getPublicCommunityPost(store: MemoryStore, postId: string): PublicCommunityPostListItem | null {
+  const post = store.getCommunityPost(postId);
+  if (!post) return null;
+  return {
+    post,
+    authorHuman: getPublicHumanIdentity(store, post.authorHumanId)
+  };
+}
+
 export function getPublicReviewComment(store: MemoryStore, comment: MemoryStore["state"]["paperReviewComments"][number]): PublicReviewComment {
   const human = getPublicHumanIdentity(store, comment.reviewerHumanId);
   return {
@@ -38,22 +54,24 @@ export function getPublicReviewComment(store: MemoryStore, comment: MemoryStore[
 export function listPublicUserSummaries(store: MemoryStore): PublicUserSummary[] {
   const summaries: PublicUserSummary[] = [];
   for (const human of store.listHumans()) {
-      const papers = store.listPapersForHuman(human.id);
-      const reviews = store.listPaperReviewCommentsForHuman(human.id);
-      const activeAgents = store.listAgentsForHuman(human.id, { status: "active" });
-      if (!papers.length && !reviews.length && !activeAgents.length) continue;
-      summaries.push({
-        humanId: human.id,
-        username: human.username,
-        githubLogin: human.githubLogin,
-        paperCount: papers.length,
-        reviewCount: reviews.length,
-        underReviewCount: papers.filter((paper) => paper.latestStatus === "under_review").length,
-        revisionRequiredCount: papers.filter((paper) => paper.latestStatus === "revision_required").length,
-        acceptedCount: papers.filter((paper) => paper.latestStatus === "accepted").length,
-        rejectedCount: papers.filter((paper) => paper.latestStatus === "rejected").length
-      } satisfies PublicUserSummary);
-    }
+    const papers = store.listPapersForHuman(human.id);
+    const reviews = store.listPaperReviewCommentsForHuman(human.id);
+    const posts = store.listCommunityPosts({ authorHumanId: human.id });
+    const activeAgents = store.listAgentsForHuman(human.id, { status: "active" });
+    if (!papers.length && !reviews.length && !posts.length && !activeAgents.length) continue;
+    summaries.push({
+      humanId: human.id,
+      username: human.username,
+      githubLogin: human.githubLogin,
+      paperCount: papers.length,
+      reviewCount: reviews.length,
+      underReviewCount: papers.filter((paper) => paper.latestStatus === "under_review").length,
+      revisionRequiredCount: papers.filter((paper) => paper.latestStatus === "revision_required").length,
+      acceptedCount: papers.filter((paper) => paper.latestStatus === "accepted").length,
+      rejectedCount: papers.filter((paper) => paper.latestStatus === "rejected").length,
+      postCount: posts.length
+    } satisfies PublicUserSummary);
+  }
 
   return summaries
     .sort((a, b) => {
@@ -70,13 +88,14 @@ export function getPublicUserProfile(store: MemoryStore, humanId: string) {
   if (!human) return null;
 
   const papers = sortByUpdatedDesc(store.listPapersForHuman(humanId));
+  const posts = sortByUpdatedDesc(store.listCommunityPosts({ authorHumanId: humanId }));
   const reviews = sortByCreatedDesc(store.listPaperReviewCommentsForHuman(humanId)).map((comment) => ({
     ...getPublicReviewComment(store, comment),
     paperTitle: store.getPaper(comment.paperId)?.title ?? comment.paperId
   }));
   const summary = listPublicUserSummaries(store).find((entry) => entry.humanId === humanId);
 
-  if (!summary && !papers.length && !reviews.length) return null;
+  if (!summary && !papers.length && !reviews.length && !posts.length) return null;
 
   return {
     human,
@@ -89,8 +108,10 @@ export function getPublicUserProfile(store: MemoryStore, humanId: string) {
       underReviewCount: 0,
       revisionRequiredCount: 0,
       acceptedCount: 0,
-      rejectedCount: 0
+      rejectedCount: 0,
+      postCount: posts.length
     },
+    posts: getPublicCommunityPostListItems(store, posts),
     papers: getPublicPaperListItems(store, papers),
     reviews
   };

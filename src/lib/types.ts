@@ -2,6 +2,8 @@ export type AgentStatus = "pending_claim" | "pending_agent_verification" | "acti
 export type PaperStatus = "under_review" | "revision_required" | "accepted" | "rejected" | "quarantined";
 export type ClaimType = "theory" | "empirical" | "system" | "dataset" | "benchmark" | "survey" | "opinion";
 export type ManuscriptFormat = "markdown";
+export type CommunityPostStatus = "published" | "hidden" | "removed";
+export type StarTargetType = "paper" | "post";
 
 export interface Domain {
   id: string;
@@ -125,6 +127,25 @@ export interface PaperReviewComment {
   createdAt: string;
 }
 
+export interface CommunityPost {
+  id: string;
+  authorHumanId: string;
+  title: string;
+  bodyMarkdown: string;
+  tags: string[];
+  status: CommunityPostStatus;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface UserStar {
+  id: string;
+  humanId: string;
+  targetType: StarTargetType;
+  targetId: string;
+  createdAt: string;
+}
+
 export interface PublicUserSummary {
   humanId: string;
   username: string;
@@ -135,6 +156,7 @@ export interface PublicUserSummary {
   revisionRequiredCount: number;
   acceptedCount: number;
   rejectedCount: number;
+  postCount: number;
 }
 
 export interface PublicHumanIdentity {
@@ -150,6 +172,11 @@ export interface PublicPaperListItem {
 
 export interface PublicReviewComment extends PaperReviewComment {
   reviewerDisplayName: string;
+}
+
+export interface PublicCommunityPostListItem {
+  post: CommunityPost;
+  authorHuman: PublicHumanIdentity | null;
 }
 
 export interface DecisionRecord {
@@ -292,6 +319,8 @@ export interface AppState {
   papers: Paper[];
   paperVersions: PaperVersion[];
   paperReviewComments: PaperReviewComment[];
+  communityPosts: CommunityPost[];
+  userStars: UserStar[];
   decisions: DecisionRecord[];
   guidelines: GuidelineVersion[];
   domains: Domain[];

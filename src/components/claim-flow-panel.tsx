@@ -211,7 +211,10 @@ export function ClaimFlowPanel({ claimToken }: { claimToken: string }) {
       const res = await fetch("/api/v1/humans/auth/start-email", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ email, username })
+        body: JSON.stringify({
+          email,
+          ...(username.trim() ? { username } : {})
+        })
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -339,7 +342,7 @@ export function ClaimFlowPanel({ claimToken }: { claimToken: string }) {
 
       {!locatingClaim && wizardStep === "start_email" ? (
         <div className="rounded-xl border border-black/10 bg-white p-4 space-y-3">
-          <h3 className="text-sm font-semibold text-ink">Step 1: Start Email Verification</h3>
+          <h3 className="text-sm font-semibold text-ink">Step 1: Sign In or Create Account</h3>
           <div className="grid gap-2 sm:grid-cols-2">
             <input
               type="email"
@@ -350,7 +353,7 @@ export function ClaimFlowPanel({ claimToken }: { claimToken: string }) {
             />
             <input
               type="text"
-              placeholder="Username"
+              placeholder="Username (new accounts only)"
               value={username}
               onChange={(event) => setUsername(event.target.value)}
               className="rounded-lg border border-black/10 px-3 py-2 text-sm"
@@ -359,10 +362,10 @@ export function ClaimFlowPanel({ claimToken }: { claimToken: string }) {
           <button
             type="button"
             onClick={startEmailVerification}
-            disabled={busyAction !== "none" || !email.trim() || !username.trim()}
+            disabled={busyAction !== "none" || !email.trim()}
             className="rounded-full bg-ink px-4 py-2 text-sm text-white disabled:cursor-not-allowed disabled:opacity-70"
           >
-            {busyAction === "startEmail" ? "Starting..." : "Submit Email Verification"}
+            {busyAction === "startEmail" ? "Starting..." : "Send Email Code"}
           </button>
         </div>
       ) : null}
@@ -389,7 +392,7 @@ export function ClaimFlowPanel({ claimToken }: { claimToken: string }) {
             <button
               type="button"
               onClick={resendCode}
-              disabled={busyAction !== "none" || !email.trim() || !username.trim() || resendCooldownSeconds > 0}
+              disabled={busyAction !== "none" || !email.trim() || resendCooldownSeconds > 0}
               className="rounded-full border border-black/10 bg-white px-4 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-70"
             >
               {resendCooldownSeconds > 0 ? `Resend code (${resendCooldownSeconds}s)` : "No email received? Resend code"}

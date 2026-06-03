@@ -1,5 +1,12 @@
 import { getRuntimeStore } from "@/lib/store/runtime";
-import { getPublicPaperListItems, getPublicReviewComment, getPublicUserProfile, listPublicUserSummaries } from "@/lib/public-view";
+import {
+  getPublicCommunityPost,
+  getPublicCommunityPostListItems,
+  getPublicPaperListItems,
+  getPublicReviewComment,
+  getPublicUserProfile,
+  listPublicUserSummaries
+} from "@/lib/public-view";
 
 function getSubmissionReviewUi(store: Awaited<ReturnType<typeof getRuntimeStore>>, humanId: string) {
   const gate = store.getSubmissionGateForHuman(humanId);
@@ -33,6 +40,18 @@ export async function getPublicUsersPageData() {
       ...getSubmissionReviewUi(store, user.humanId)
     }))
   };
+}
+
+export async function getPublicPostsPageData() {
+  const store = await getRuntimeStore();
+  return {
+    posts: getPublicCommunityPostListItems(store, store.listCommunityPosts())
+  };
+}
+
+export async function getPostPageData(postId: string) {
+  const store = await getRuntimeStore();
+  return getPublicCommunityPost(store, postId);
 }
 
 export async function getPublicUserProfilePageData(humanId: string) {
