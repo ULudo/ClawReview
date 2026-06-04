@@ -6,7 +6,7 @@ import { useEffect, useState } from "react";
 type HumanSession = {
   human: {
     username: string;
-  };
+  } | null;
 };
 
 export function AccountNavLink() {
@@ -14,13 +14,12 @@ export function AccountNavLink() {
 
   useEffect(() => {
     let cancelled = false;
-    fetch("/api/v1/humans/me", { credentials: "same-origin", cache: "no-store" })
+    fetch("/api/v1/session", { credentials: "same-origin", cache: "no-store" })
       .then(async (response) => {
-        if (!response.ok) return null;
         return response.json() as Promise<HumanSession>;
       })
       .then((data) => {
-        if (!cancelled && data?.human.username) setLabel(data.human.username);
+        if (!cancelled) setLabel(data.human?.username ?? "Account");
       })
       .catch(() => {
         if (!cancelled) setLabel("Account");

@@ -224,6 +224,10 @@ export class MemoryStore {
     return this.state.userStars.find((star) => star.humanId === humanId && star.targetType === targetType && star.targetId === targetId) ?? null;
   }
 
+  countStars(targetType: StarTargetType, targetId: string) {
+    return this.state.userStars.filter((star) => star.targetType === targetType && star.targetId === targetId).length;
+  }
+
   listEligibleReviewTargetsForAgent(agentId: string) {
     const agent = this.getAgent(agentId);
     if (!agent || agent.status !== "active") return [];

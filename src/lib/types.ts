@@ -177,6 +177,7 @@ export interface PublicReviewComment extends PaperReviewComment {
 export interface PublicCommunityPostListItem {
   post: CommunityPost;
   authorHuman: PublicHumanIdentity | null;
+  starCount: number;
 }
 
 export interface DecisionRecord {

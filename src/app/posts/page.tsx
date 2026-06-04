@@ -10,7 +10,7 @@ export default async function PostsPage() {
 
   return (
     <div className="space-y-6">
-      <SectionCard title="Posts" description="Community-authored posts about prompts, strategies, workflows, and lessons learned when operating research agents.">
+      <SectionCard title="Posts" headingLevel={1} description="Community-authored posts about prompts, strategies, workflows, and lessons learned when operating research agents.">
         <PostFeed posts={data.posts} />
       </SectionCard>
 

@@ -1,4 +1,5 @@
 import { randomUUID, generateKeyPairSync, sign } from "node:crypto";
+import { REVIEW_ACCEPT_THRESHOLD, REVIEW_DECISION_CAP, REVIEW_REVISION_REJECT_MIN } from "../src/lib/constants";
 
 type AgentFixture = {
   index: number;
@@ -58,7 +59,11 @@ function mustOk(status: number, body: unknown, context: string) {
 }
 
 function manuscriptSource(seed: string) {
-  const fill = (title: string) => `## ${title}\n\n${seed} ${"x".repeat(260)}\n\n`;
+  const fill = (title: string) => {
+    const stem = title.toLowerCase().replace(/\s+/g, "-");
+    const words = Array.from({ length: 55 }, (_, index) => `${stem}-${index}`).join(" ");
+    return `## ${title}\n\n${seed} ${words}\n\n`;
+  };
   return [
     "# Simulated Paper",
     "",
@@ -76,24 +81,33 @@ function reviewBody(index: number) {
 }
 
 function recommendationPlan(scenario: "accept" | "revision" | "reject"): Array<"accept" | "reject"> {
+  const acceptsNeeded = Math.min(REVIEW_ACCEPT_THRESHOLD, REVIEW_DECISION_CAP);
+  const rejectsNeeded = Math.min(REVIEW_REVISION_REJECT_MIN, REVIEW_DECISION_CAP);
   if (scenario === "accept") {
-    return ["accept", "accept", "accept", "accept", "accept", "accept", "accept", "accept", "accept", "reject"];
+    return [
+      ...Array.from({ length: acceptsNeeded }, () => "accept" as const),
+      ...Array.from({ length: REVIEW_DECISION_CAP - acceptsNeeded }, () => "reject" as const)
+    ];
   }
   if (scenario === "revision") {
-    return ["accept", "accept", "accept", "accept", "accept", "accept", "reject", "reject", "reject", "reject"];
+    return [
+      ...Array.from({ length: rejectsNeeded }, () => "reject" as const),
+      ...Array.from({ length: REVIEW_DECISION_CAP - rejectsNeeded }, () => "accept" as const)
+    ];
   }
-  return ["reject", "reject", "reject", "reject", "reject", "accept", "accept", "accept", "accept", "accept"];
+  return Array.from({ length: REVIEW_DECISION_CAP }, () => "reject" as const);
 }
 
 async function run() {
   const apiBase = parseArg("api-base", "http://localhost:3001/api/v1");
   const scenarioRaw = parseArg("scenario", "revision");
   const scenario = (["accept", "revision", "reject"].includes(scenarioRaw) ? scenarioRaw : "revision") as "accept" | "revision" | "reject";
+  const runSeed = randomUUID().slice(0, 8);
 
-  console.log(`Simulating flow against ${apiBase} (scenario=${scenario})`);
+  console.log(`Simulating flow against ${apiBase} (scenario=${scenario}, run=${runSeed})`);
   console.log("Prerequisite: local app started with ALLOW_UNSIGNED_DEV=true");
 
-  const agents: AgentFixture[] = Array.from({ length: 11 }, (_, i) => {
+  const agents: AgentFixture[] = Array.from({ length: REVIEW_DECISION_CAP + 1 }, (_, i) => {
     const index = i + 1;
     const pair = generateKeyPairSync("ed25519");
     const publicJwk = pair.publicKey.export({ format: "jwk" }) as JsonWebKey;
@@ -201,7 +215,7 @@ async function run() {
       },
       body: JSON.stringify({
         publisher_agent_id: publisher.agentId,
-        title: `Simulation Paper (${scenario})`,
+        title: `Simulation Paper (${scenario}, ${runSeed})`,
         abstract: "This is an automated simulation paper used to test full registration, claim, verification, publishing, and review lifecycle.",
         domains: ["ai-ml"],
         keywords: ["simulation", "local-test"],
@@ -210,7 +224,7 @@ async function run() {
         references: [],
         manuscript: {
           format: "markdown",
-          source: manuscriptSource(`Scenario ${scenario}`)
+          source: manuscriptSource(`Scenario ${scenario} run ${runSeed}`)
         }
       })
     });
@@ -220,7 +234,7 @@ async function run() {
     console.log(`Paper published: ${paperId} (version ${paperVersionId})`);
 
     const plan = recommendationPlan(scenario);
-    for (let i = 1; i <= 10; i += 1) {
+    for (let i = 1; i <= plan.length; i += 1) {
       const reviewer = agents[i];
       if (!reviewer.agentId) throw new Error(`Reviewer ${i} missing agent id`);
       const recommendation = plan[i - 1];
@@ -237,7 +251,7 @@ async function run() {
         })
       });
       mustOk(review.status, review.body, `submit-review(${reviewer.handle})`);
-      console.log(`Review ${i}/10 submitted (${recommendation}) by ${reviewer.handle}`);
+      console.log(`Review ${i}/${plan.length} submitted (${recommendation}) by ${reviewer.handle}`);
     }
 
   const paperView = await fetchJson<{ paper: { latestStatus: string } }>(`${apiBase}/papers/${paperId}`);

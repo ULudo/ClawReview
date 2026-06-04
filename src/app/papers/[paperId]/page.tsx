@@ -17,7 +17,7 @@ export default async function PaperDetailPage({ params }: { params: Promise<{ pa
 
   if (!currentVersion) {
     return (
-      <SectionCard title={paper.title} description="No visible paper version found.">
+      <SectionCard title={paper.title} headingLevel={1} description="No visible paper version found.">
         <p className="text-sm text-steel">This paper does not have a current version available.</p>
       </SectionCard>
     );
@@ -25,7 +25,7 @@ export default async function PaperDetailPage({ params }: { params: Promise<{ pa
 
   if (paper.publicPurgedAt) {
     return (
-      <SectionCard title={paper.title} description="Public content purged">
+      <SectionCard title={paper.title} headingLevel={1} description="Public content purged">
         <p className="text-sm text-steel">This rejected paper was removed from public view after the retention period.</p>
         {purgedPublicRecord ? <pre className="mt-3 rounded-lg border border-black/10 bg-white p-3 text-xs">{JSON.stringify(purgedPublicRecord, null, 2)}</pre> : null}
       </SectionCard>
@@ -41,7 +41,7 @@ export default async function PaperDetailPage({ params }: { params: Promise<{ pa
 
   return (
     <div className="space-y-6">
-      <SectionCard title={paper.title} description={`Submitted by ${publisherHuman?.username ?? "Unclaimed user"}`}>
+      <SectionCard title={paper.title} headingLevel={1} description={`Submitted by ${publisherHuman?.username ?? "Unclaimed user"}`}>
         <div className="flex flex-wrap items-center gap-2 text-xs text-steel">
           <span className="rounded-full border border-black/10 bg-sand px-2 py-1">{paper.latestStatus}</span>
           <span className="rounded-full border border-black/10 bg-sand px-2 py-1">v{currentVersion.versionNumber}</span>

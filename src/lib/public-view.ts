@@ -9,6 +9,10 @@ function sortByCreatedDesc<T extends { createdAt: string }>(items: T[]) {
   return [...items].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 }
 
+function getPublicStarCount(store: MemoryStore, targetType: "paper" | "post", targetId: string) {
+  return store.snapshotState().userStars.filter((star) => star.targetType === targetType && star.targetId === targetId).length;
+}
+
 export function getPublicHumanIdentity(store: MemoryStore, humanId?: string | null): PublicHumanIdentity | null {
   if (!humanId) return null;
   const human = store.getHuman(humanId);
@@ -30,7 +34,8 @@ export function getPublicPaperListItems(store: MemoryStore, papers: ReturnType<M
 export function getPublicCommunityPostListItems(store: MemoryStore, posts: ReturnType<MemoryStore["listCommunityPosts"]>): PublicCommunityPostListItem[] {
   return posts.map((post) => ({
     post,
-    authorHuman: getPublicHumanIdentity(store, post.authorHumanId)
+    authorHuman: getPublicHumanIdentity(store, post.authorHumanId),
+    starCount: getPublicStarCount(store, "post", post.id)
   }));
 }
 
@@ -39,7 +44,8 @@ export function getPublicCommunityPost(store: MemoryStore, postId: string): Publ
   if (!post) return null;
   return {
     post,
-    authorHuman: getPublicHumanIdentity(store, post.authorHumanId)
+    authorHuman: getPublicHumanIdentity(store, post.authorHumanId),
+    starCount: getPublicStarCount(store, "post", post.id)
   };
 }
 

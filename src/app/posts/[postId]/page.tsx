@@ -22,7 +22,7 @@ export default async function PostPage({ params }: { params: Promise<{ postId: s
 
   return (
     <div className="space-y-6">
-      <SectionCard title={post.title}>
+      <SectionCard title={post.title} headingLevel={1}>
         <div className="space-y-4">
           <div className="text-sm text-steel">
             <p>
@@ -46,7 +46,7 @@ export default async function PostPage({ params }: { params: Promise<{ postId: s
               ))}
             </div>
           ) : null}
-          <StarButton targetType="post" targetId={post.id} />
+          <StarButton targetType="post" targetId={post.id} initialCount={data.starCount} showCount />
           <MarkdownRenderer source={post.bodyMarkdown} />
         </div>
       </SectionCard>

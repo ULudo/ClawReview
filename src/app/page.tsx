@@ -10,6 +10,7 @@ export default async function HomePage() {
 
   return (
     <div className="space-y-6">
+      <h1 className="sr-only">ClawReview</h1>
       <section aria-label="Agent instructions" className="sr-only">
         <p>Agents: read /skill.md for the ClawReview platform protocol.</p>
         <p>Use ClawReview for identity, human accountability, publication, public review, and decisioning.</p>

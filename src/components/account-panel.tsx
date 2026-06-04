@@ -51,6 +51,12 @@ export function AccountPanel() {
   const [error, setError] = useState("");
 
   async function loadAccount() {
+    const sessionResponse = await fetch("/api/v1/session", { credentials: "same-origin", cache: "no-store" });
+    const session = await sessionResponse.json().catch(() => ({ human: null })) as { human?: { id: string } | null };
+    if (!session.human) {
+      setState({ status: "anonymous" });
+      return;
+    }
     const response = await fetch("/api/v1/account", { credentials: "same-origin", cache: "no-store" });
     if (!response.ok) {
       setState({ status: "anonymous" });
@@ -138,49 +144,52 @@ export function AccountPanel() {
 
   if (state.status === "anonymous") {
     return (
-      <SectionCard title="Account" description="Sign in with an email code, or create a new ClawReview account.">
+      <SectionCard title="Account" headingLevel={1} description="Sign in with an email code, or create a new ClawReview account.">
         <div className="space-y-3">
-        <div className="inline-flex rounded-full border border-black/10 bg-white p-1 text-sm">
-          <button
-            type="button"
-            onClick={() => setAuthMode("sign_in")}
-            className={`rounded-full px-3 py-1.5 ${authMode === "sign_in" ? "bg-ink text-white" : "text-steel hover:text-ink"}`}
-          >
-            Sign in
-          </button>
-          <button
-            type="button"
-            onClick={() => setAuthMode("create")}
-            className={`rounded-full px-3 py-1.5 ${authMode === "create" ? "bg-ink text-white" : "text-steel hover:text-ink"}`}
-          >
-            Create account
-          </button>
-        </div>
-        <div className={`grid gap-2 ${authMode === "create" ? "sm:grid-cols-2" : ""}`}>
-          <input value={email} onChange={(event) => setEmail(event.target.value)} type="email" placeholder="Email" className="rounded-xl border border-black/10 bg-white px-3 py-2 text-sm" />
-          {authMode === "create" ? (
-            <input value={username} onChange={(event) => setUsername(event.target.value)} placeholder="Username" className="rounded-xl border border-black/10 bg-white px-3 py-2 text-sm" />
-          ) : null}
-        </div>
-        <button
-          type="button"
-          onClick={startEmail}
-          disabled={!email.trim() || (authMode === "create" && !username.trim())}
-          className="rounded-full border border-black/10 bg-ink px-4 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          {authMode === "create" ? "Create account" : "Send sign-in code"}
-        </button>
-        {verificationSent ? (
-          <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
-            <input value={code} onChange={(event) => setCode(event.target.value)} placeholder="Verification code" className="rounded-xl border border-black/10 bg-white px-3 py-2 text-sm" />
-            <button type="button" onClick={verifyEmail} disabled={!code.trim()} className="rounded-full border border-black/10 bg-white px-4 py-2 text-sm font-medium text-ink disabled:cursor-not-allowed disabled:opacity-60">
-              Verify
+          <div className="inline-flex rounded-full border border-black/10 bg-white p-1 text-sm">
+            <button
+              type="button"
+              onClick={() => setAuthMode("sign_in")}
+              className={`rounded-full px-3 py-1.5 ${authMode === "sign_in" ? "bg-ink text-white" : "text-steel hover:text-ink"}`}
+            >
+              Sign in
+            </button>
+            <button
+              type="button"
+              onClick={() => setAuthMode("create")}
+              className={`rounded-full px-3 py-1.5 ${authMode === "create" ? "bg-ink text-white" : "text-steel hover:text-ink"}`}
+            >
+              Create account
             </button>
           </div>
-        ) : null}
-        {verificationSent && devCode ? <p className="text-sm text-steel">Dev code: {devCode}</p> : null}
-        {message ? <p className="text-sm text-emerald-700">{message}</p> : null}
-        {error ? <p className="text-sm text-rose-700">{error}</p> : null}
+          {authMode === "create" ? (
+            <p className="text-sm text-steel">GitHub connection is required to complete setup.</p>
+          ) : null}
+          <div className={`grid gap-2 ${authMode === "create" ? "sm:grid-cols-2" : ""}`}>
+            <input value={email} onChange={(event) => setEmail(event.target.value)} type="email" placeholder="Email" className="rounded-xl border border-black/10 bg-white px-3 py-2 text-sm" />
+            {authMode === "create" ? (
+              <input value={username} onChange={(event) => setUsername(event.target.value)} placeholder="Username" className="rounded-xl border border-black/10 bg-white px-3 py-2 text-sm" />
+            ) : null}
+          </div>
+          <button
+            type="button"
+            onClick={startEmail}
+            disabled={!email.trim() || (authMode === "create" && !username.trim())}
+            className="rounded-full border border-black/10 bg-ink px-4 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {authMode === "create" ? "Create account and continue" : "Send sign-in code"}
+          </button>
+          {verificationSent ? (
+            <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
+              <input value={code} onChange={(event) => setCode(event.target.value)} placeholder="Verification code" className="rounded-xl border border-black/10 bg-white px-3 py-2 text-sm" />
+              <button type="button" onClick={verifyEmail} disabled={!code.trim()} className="rounded-full border border-black/10 bg-white px-4 py-2 text-sm font-medium text-ink disabled:cursor-not-allowed disabled:opacity-60">
+                Verify
+              </button>
+            </div>
+          ) : null}
+          {verificationSent && devCode ? <p className="text-sm text-steel">Dev code: {devCode}</p> : null}
+          {message ? <p className="text-sm text-emerald-700">{message}</p> : null}
+          {error ? <p className="text-sm text-rose-700">{error}</p> : null}
         </div>
       </SectionCard>
     );
@@ -189,7 +198,7 @@ export function AccountPanel() {
   const { account } = state;
   return (
     <div className="space-y-6">
-      <SectionCard title="Account">
+      <SectionCard title="Account" headingLevel={1}>
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <h3 className="text-lg font-semibold text-ink">{account.human.username}</h3>
@@ -229,6 +238,7 @@ export function AccountPanel() {
           reviews={account.profile.reviews}
           outstandingReviewCount={account.profile.outstandingReviewCount}
           reviewRequirementSatisfied={account.profile.reviewRequirementSatisfied}
+          compactEmpty
         />
       ) : null}
       <AccountList title="Starred Papers" empty="No starred papers yet." items={account.starred_papers.map(({ paper }) => ({

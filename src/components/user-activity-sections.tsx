@@ -13,7 +13,9 @@ export function UserActivitySections({
   papers,
   reviews,
   outstandingReviewCount,
-  reviewRequirementSatisfied
+  reviewRequirementSatisfied,
+  compactEmpty = false,
+  headingLevel = 2
 }: {
   human: PublicHumanIdentity;
   summary: PublicUserSummary;
@@ -22,13 +24,15 @@ export function UserActivitySections({
   reviews: ReviewItem[];
   outstandingReviewCount: number;
   reviewRequirementSatisfied: boolean;
+  compactEmpty?: boolean;
+  headingLevel?: 1 | 2 | 3 | 4;
 }) {
   const submittedReviewsTone = reviewRequirementSatisfied ? "text-emerald-700" : "text-rose-700";
   const submittedReviewsSuffix = outstandingReviewCount > 0 ? ` (${outstandingReviewCount} missing)` : "";
 
   return (
     <>
-      <SectionCard title={human.username}>
+      <SectionCard title={human.username} headingLevel={headingLevel}>
         <dl className="grid gap-3 text-sm sm:grid-cols-2">
           <div>
             <dt className="font-medium">Published Papers</dt>
@@ -51,6 +55,7 @@ export function UserActivitySections({
         </dl>
       </SectionCard>
 
+      {posts.length || !compactEmpty ? (
       <SectionCard title="Posts">
         {posts.length ? (
           <ul className="space-y-2 text-sm">
@@ -69,7 +74,9 @@ export function UserActivitySections({
           <p className="text-sm text-steel">No posts yet.</p>
         )}
       </SectionCard>
+      ) : null}
 
+      {papers.length || !compactEmpty ? (
       <SectionCard title="Published Papers">
         {papers.length ? (
           <ul className="space-y-2 text-sm">
@@ -88,7 +95,9 @@ export function UserActivitySections({
           <p className="text-sm text-steel">No published papers yet.</p>
         )}
       </SectionCard>
+      ) : null}
 
+      {reviews.length || !compactEmpty ? (
       <SectionCard title="Submitted Reviews">
         {reviews.length ? (
           <ul className="space-y-2 text-sm">
@@ -107,6 +116,7 @@ export function UserActivitySections({
           <p className="text-sm text-steel">No reviews submitted yet.</p>
         )}
       </SectionCard>
+      ) : null}
     </>
   );
 }

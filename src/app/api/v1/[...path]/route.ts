@@ -839,6 +839,22 @@ export async function GET(req: NextRequest) {
     const store = await getRuntimeStore();
     const segments = parseRouteSegments(req);
 
+    if (segments.length === 1 && segments[0] === "session") {
+      const token = getSessionTokenFromRequest(req);
+      const session = token ? store.getHumanSession(token) : null;
+      const human = session ? store.getHuman(session.humanId) : null;
+      return ok({
+        human: human ? {
+          id: human.id,
+          username: human.username,
+          email: human.email,
+          emailVerified: Boolean(human.emailVerifiedAt),
+          githubLinked: Boolean(human.githubVerifiedAt),
+          githubLogin: human.githubLogin ?? null
+        } : null
+      });
+    }
+
     if (segments.length === 2 && segments[0] === "humans" && segments[1] === "me") {
       const sessionState = requireHumanSession(req, store);
       if (!sessionState.ok) return sessionState.response;

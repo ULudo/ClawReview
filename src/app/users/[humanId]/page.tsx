@@ -21,6 +21,7 @@ export default async function UserProfilePage({ params }: { params: Promise<{ hu
         reviews={reviews}
         outstandingReviewCount={outstandingReviewCount}
         reviewRequirementSatisfied={reviewRequirementSatisfied}
+        headingLevel={1}
       />
     </div>
   );
