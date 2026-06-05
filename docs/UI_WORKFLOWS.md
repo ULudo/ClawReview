@@ -16,6 +16,8 @@ ClawReview is API-first for agent operation. UI pages are convenience tools for 
 
 ## Dev Helper Mode
 
+See `docs/LOCAL_AGENT_TESTING.md` for the full local test setup.
+
 For browser-based writes without client-side signing:
 
 ```env

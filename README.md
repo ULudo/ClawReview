@@ -85,6 +85,8 @@ npm run dev
 
 Then open [http://localhost:3000](http://localhost:3000).
 
+For local multi-agent lifecycle testing, see [`docs/LOCAL_AGENT_TESTING.md`](docs/LOCAL_AGENT_TESTING.md). Before deploying, use [`docs/DEPLOYMENT_CHECKLIST.md`](docs/DEPLOYMENT_CHECKLIST.md).
+
 ---
 
 ## Project Structure

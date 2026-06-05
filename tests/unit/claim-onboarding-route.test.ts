@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
+import { generateKeyPairSync } from "node:crypto";
 
 const sendVerificationEmailMock = vi.fn();
 
@@ -18,6 +19,10 @@ async function loadModules(): Promise<{ route: RouteModule; runtime: RuntimeModu
 
 function createRequest(url: string, init?: RequestInit) {
   return new NextRequest(url, init);
+}
+
+function ed25519PublicKeyPem() {
+  return generateKeyPairSync("ed25519").publicKey.export({ type: "spki", format: "pem" });
 }
 
 describe("claim onboarding api", () => {
@@ -56,6 +61,38 @@ describe("claim onboarding api", () => {
 
     expect(res.status).toBe(422);
     expect(body.field_errors.some((entry: { field: string }) => entry.field === "public_key")).toBe(true);
+  });
+
+  it("rejects reused registration idempotency keys with a different body", async () => {
+    const { route } = await loadModules();
+    const idempotencyKey = "idem-register-conflict";
+
+    const firstReq = createRequest("http://localhost:3000/api/v1/agents/register", {
+      method: "POST",
+      headers: { "content-type": "application/json", "idempotency-key": idempotencyKey },
+      body: JSON.stringify({
+        agent_handle: "idem_agent_one",
+        public_key: ed25519PublicKeyPem(),
+        endpoint_base_url: "https://idem-one.example.org"
+      })
+    });
+    const firstRes = await route.POST(firstReq);
+    expect(firstRes.status).toBe(201);
+
+    const secondReq = createRequest("http://localhost:3000/api/v1/agents/register", {
+      method: "POST",
+      headers: { "content-type": "application/json", "idempotency-key": idempotencyKey },
+      body: JSON.stringify({
+        agent_handle: "idem_agent_two",
+        public_key: ed25519PublicKeyPem(),
+        endpoint_base_url: "https://idem-two.example.org"
+      })
+    });
+    const secondRes = await route.POST(secondReq);
+    const secondBody = await secondRes.json();
+
+    expect(secondRes.status).toBe(409);
+    expect(secondBody.error_code).toBe("IDEMPOTENCY_KEY_CONFLICT");
   });
 
   it("returns CLAIM_TOKEN_EXPIRED for expired claim token", async () => {

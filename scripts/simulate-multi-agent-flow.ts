@@ -1,4 +1,4 @@
-import { randomUUID, generateKeyPairSync, sign } from "node:crypto";
+import { createHash, randomUUID, generateKeyPairSync, sign } from "node:crypto";
 import { REVIEW_ACCEPT_THRESHOLD, REVIEW_DECISION_CAP, REVIEW_REVISION_REJECT_MIN } from "../src/lib/constants";
 
 type AgentFixture = {
@@ -29,6 +29,22 @@ type PaperCreateResponse = {
   version: { id: string };
 };
 
+type ReviewTargetsResponse = {
+  targets: Array<{
+    paper_id: string;
+    paper_version_id: string;
+    title: string;
+    status: string;
+    web_url?: string;
+    paper_api_url?: string;
+    paper_version_api_url?: string;
+  }>;
+};
+
+type PreflightResponse = {
+  ok: boolean;
+};
+
 function parseArg(name: string, fallback: string): string {
   const prefix = `--${name}=`;
   const raw = process.argv.find((value) => value.startsWith(prefix));
@@ -56,6 +72,41 @@ function parseSessionCookie(setCookieHeader: string | null): string | null {
 function mustOk(status: number, body: unknown, context: string) {
   if (status >= 200 && status < 300) return;
   throw new Error(`${context} failed (${status}): ${JSON.stringify(body)}`);
+}
+
+function sha256Hex(value: string) {
+  return createHash("sha256").update(value || "").digest("hex");
+}
+
+function signedHeaders(apiBase: string, agent: AgentFixture, method: string, path: string, bodyText: string) {
+  if (!agent.agentId) throw new Error(`Agent ${agent.handle} is missing agent id`);
+  const timestamp = String(Date.now());
+  const nonce = randomUUID();
+  const pathname = `${new URL(apiBase).pathname.replace(/\/+$/, "")}${path}`;
+  const canonical = [
+    method.toUpperCase(),
+    pathname,
+    timestamp,
+    nonce,
+    sha256Hex(bodyText)
+  ].join("\n");
+  return {
+    "content-type": "application/json",
+    "x-agent-id": agent.agentId,
+    "x-timestamp": timestamp,
+    "x-nonce": nonce,
+    "x-signature": sign(null, Buffer.from(canonical, "utf8"), agent.privateKey).toString("base64"),
+    "idempotency-key": randomUUID()
+  };
+}
+
+async function signedJson<T>(apiBase: string, agent: AgentFixture, method: string, path: string, payload: unknown) {
+  const bodyText = JSON.stringify(payload);
+  return fetchJson<T>(`${apiBase}${path}`, {
+    method,
+    headers: signedHeaders(apiBase, agent, method, path, bodyText),
+    body: bodyText
+  });
 }
 
 function manuscriptSource(seed: string) {
@@ -127,7 +178,7 @@ async function run() {
   for (const agent of agents) {
       const register = await fetchJson<RegisterResponse>(`${apiBase}/agents/register`, {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", "idempotency-key": randomUUID() },
         body: JSON.stringify({
           agent_name: agent.name,
           agent_handle: agent.handle,
@@ -138,6 +189,11 @@ async function run() {
       });
       mustOk(register.status, register.body, `register(${agent.handle})`);
       agent.agentId = register.body.agent.id;
+      const claimToken = decodeURIComponent(register.body.claim.claimUrl.split("/claim/")[1] ?? "");
+      if (!claimToken) throw new Error(`Invalid claim URL for ${agent.handle}`);
+
+      const claimStatus = await fetchJson<Record<string, unknown>>(`${apiBase}/agents/claim/${encodeURIComponent(claimToken)}`);
+      mustOk(claimStatus.status, claimStatus.body, `claim-status(${agent.handle})`);
 
       const email = `sim-human-${agent.index}-${randomUUID().slice(0, 6)}@example.test`;
       const username = `sim_human_${agent.index}_${randomUUID().slice(0, 6)}`;
@@ -164,25 +220,18 @@ async function run() {
       }
       const cookieHeader = `clawreview_human_session=${sessionToken}`;
 
-      const ghStart = await fetchJson<GithubStartResponse>(`${apiBase}/humans/auth/github/start`, {
+      const ghStart = await fetchJson<GithubStartResponse>(`${apiBase}/humans/auth/github/start?response_mode=json&return_to=/claim/${encodeURIComponent(claimToken)}`, {
         headers: { cookie: cookieHeader }
       });
       mustOk(ghStart.status, ghStart.body, `github-start(${agent.handle})`);
-      const authUrl = new URL(ghStart.body.authorization_url);
-      const state = authUrl.searchParams.get("state");
-      if (!state) throw new Error(`Missing GitHub state for ${agent.handle}`);
-
-      const ghCallbackUrl = `${apiBase}/humans/auth/github/callback?state=${encodeURIComponent(state)}&mock_id=gh_${agent.index}_${randomUUID().slice(0, 6)}&mock_login=${encodeURIComponent(`simgh_${agent.index}`)}`;
-      const ghCallback = await fetchJson<Record<string, unknown>>(ghCallbackUrl, {
+      const ghCallback = await fetchJson<Record<string, unknown>>(ghStart.body.authorization_url, {
         headers: { cookie: cookieHeader }
       });
       mustOk(ghCallback.status, ghCallback.body, `github-callback(${agent.handle})`);
 
-      const claimToken = register.body.claim.claimUrl.split("/claim/")[1];
-      if (!claimToken) throw new Error(`Invalid claim URL for ${agent.handle}`);
       const claim = await fetchJson<Record<string, unknown>>(`${apiBase}/agents/claim`, {
         method: "POST",
-        headers: { "content-type": "application/json", cookie: cookieHeader },
+        headers: { "content-type": "application/json", cookie: cookieHeader, "idempotency-key": randomUUID() },
         body: JSON.stringify({
           claim_token: claimToken,
           accept_terms: true,
@@ -207,51 +256,79 @@ async function run() {
 
     const publisher = agents[0];
     if (!publisher.agentId) throw new Error("Publisher agent is missing");
+    const paperPayload = {
+      publisher_agent_id: publisher.agentId,
+      title: `Simulation Paper (${scenario}, ${runSeed})`,
+      abstract: "This is an automated simulation paper used to test full registration, claim, verification, publishing, and review lifecycle.",
+      domains: ["ai-ml"],
+      keywords: ["simulation", "local-test"],
+      claim_types: ["theory"],
+      language: "en",
+      references: [],
+      attachment_asset_ids: [],
+      manuscript: {
+        format: "markdown",
+        source: manuscriptSource(`Scenario ${scenario} run ${runSeed}`)
+      }
+    };
+    const preflight = await signedJson<PreflightResponse>(apiBase, publisher, "POST", "/papers/preflight", paperPayload);
+    mustOk(preflight.status, preflight.body, "preflight-paper");
+    if (!preflight.body.ok) throw new Error(`preflight-paper returned ok=false: ${JSON.stringify(preflight.body)}`);
+
+    const publishBodyText = JSON.stringify(paperPayload);
+    const publishHeaders = signedHeaders(apiBase, publisher, "POST", "/papers", publishBodyText);
     const publish = await fetchJson<PaperCreateResponse>(`${apiBase}/papers`, {
       method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-dev-agent-id": publisher.agentId
-      },
-      body: JSON.stringify({
-        publisher_agent_id: publisher.agentId,
-        title: `Simulation Paper (${scenario}, ${runSeed})`,
-        abstract: "This is an automated simulation paper used to test full registration, claim, verification, publishing, and review lifecycle.",
-        domains: ["ai-ml"],
-        keywords: ["simulation", "local-test"],
-        claim_types: ["theory"],
-        language: "en",
-        references: [],
-        manuscript: {
-          format: "markdown",
-          source: manuscriptSource(`Scenario ${scenario} run ${runSeed}`)
-        }
-      })
+      headers: publishHeaders,
+      body: publishBodyText
     });
     mustOk(publish.status, publish.body, "publish-paper");
+    const publishReplay = await fetchJson<PaperCreateResponse>(`${apiBase}/papers`, {
+      method: "POST",
+      headers: publishHeaders,
+      body: publishBodyText
+    });
+    mustOk(publishReplay.status, publishReplay.body, "publish-paper-replay");
+    if (publishReplay.headers.get("x-idempotent-replay") !== "true") {
+      throw new Error("Exact signed publish retry did not replay idempotently");
+    }
     const paperId = publish.body.paper.id;
     const paperVersionId = publish.body.version.id;
     console.log(`Paper published: ${paperId} (version ${paperVersionId})`);
+
+    const selfTargets = await fetchJson<ReviewTargetsResponse>(`${apiBase}/review-targets?agent_id=${publisher.agentId}`);
+    mustOk(selfTargets.status, selfTargets.body, "review-targets(self)");
+    if (selfTargets.body.targets.some((target) => target.paper_id === paperId)) {
+      throw new Error("Publisher agent saw its own paper as an eligible review target");
+    }
 
     const plan = recommendationPlan(scenario);
     for (let i = 1; i <= plan.length; i += 1) {
       const reviewer = agents[i];
       if (!reviewer.agentId) throw new Error(`Reviewer ${i} missing agent id`);
       const recommendation = plan[i - 1];
-      const review = await fetchJson<Record<string, unknown>>(`${apiBase}/papers/${paperId}/reviews`, {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          "x-dev-agent-id": reviewer.agentId
-        },
-        body: JSON.stringify({
-          paper_version_id: paperVersionId,
-          body_markdown: reviewBody(i),
-          recommendation
-        })
+      const targets = await fetchJson<ReviewTargetsResponse>(`${apiBase}/review-targets?agent_id=${reviewer.agentId}`);
+      mustOk(targets.status, targets.body, `review-targets(${reviewer.handle})`);
+      const target = targets.body.targets.find((item) => item.paper_id === paperId && item.paper_version_id === paperVersionId);
+      if (!target) {
+        throw new Error(`Reviewer ${reviewer.handle} did not see ${paperId}/${paperVersionId} as an eligible target`);
+      }
+      if (!target.paper_api_url || !target.paper_version_api_url || !target.web_url) {
+        throw new Error(`Reviewer ${reviewer.handle} target is missing API/web URLs`);
+      }
+      const review = await signedJson<Record<string, unknown>>(apiBase, reviewer, "POST", `/papers/${paperId}/reviews`, {
+        paper_version_id: paperVersionId,
+        body_markdown: reviewBody(i),
+        recommendation
       });
       mustOk(review.status, review.body, `submit-review(${reviewer.handle})`);
       console.log(`Review ${i}/${plan.length} submitted (${recommendation}) by ${reviewer.handle}`);
+
+      const targetsAfterReview = await fetchJson<ReviewTargetsResponse>(`${apiBase}/review-targets?agent_id=${reviewer.agentId}`);
+      mustOk(targetsAfterReview.status, targetsAfterReview.body, `review-targets-after(${reviewer.handle})`);
+      if (targetsAfterReview.body.targets.some((target) => target.paper_id === paperId)) {
+        throw new Error(`Reviewer ${reviewer.handle} still saw ${paperId} after submitting a review`);
+      }
     }
 
   const paperView = await fetchJson<{ paper: { latestStatus: string } }>(`${apiBase}/papers/${paperId}`);

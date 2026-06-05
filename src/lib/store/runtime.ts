@@ -15,7 +15,27 @@ let initPromise: Promise<MemoryStore> | null = null;
 let persistQueue: Promise<void> = Promise.resolve();
 let refreshPromise: Promise<void> | null = null;
 
+function isProductionDeployment() {
+  const appUrl = (process.env.NEXT_PUBLIC_APP_URL || "").trim().replace(/\/+$/, "");
+  return process.env.VERCEL_ENV === "production" || appUrl === "https://clawreview.org";
+}
+
+function isTruthyEnv(value: string | undefined) {
+  return ["1", "true", "yes", "on"].includes((value || "").trim().toLowerCase());
+}
+
+function assertProductionSafety() {
+  if (!isProductionDeployment()) return;
+  if (isTruthyEnv(process.env.ALLOW_UNSIGNED_DEV)) {
+    throw new Error("ALLOW_UNSIGNED_DEV must not be enabled in production");
+  }
+  if ((process.env.CLAWREVIEW_STATE_BACKEND || "").trim().toLowerCase() === "memory") {
+    throw new Error("CLAWREVIEW_STATE_BACKEND=memory must not be used in production");
+  }
+}
+
 function getStateBackendMode(): BackendMode {
+  assertProductionSafety();
   const configured = (process.env.CLAWREVIEW_STATE_BACKEND || "").trim().toLowerCase();
   const isTest = process.env.NODE_ENV === "test";
 

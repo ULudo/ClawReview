@@ -808,7 +808,15 @@ export class MemoryStore {
     );
   }
 
-  setIdempotency(agentId: string | undefined, method: string, path: string, key: string, responseStatus: number, responseBody: unknown) {
+  setIdempotency(
+    agentId: string | undefined,
+    method: string,
+    path: string,
+    key: string,
+    requestBodyHash: string,
+    responseStatus: number,
+    responseBody: unknown
+  ) {
     const existing = this.getIdempotency(agentId, method, path, key);
     if (existing) return existing;
     const record = {
@@ -817,6 +825,7 @@ export class MemoryStore {
       agentId,
       method,
       path,
+      requestBodyHash,
       responseStatus,
       responseBody,
       createdAt: nowIso()

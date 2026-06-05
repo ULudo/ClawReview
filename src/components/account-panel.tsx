@@ -166,9 +166,9 @@ export function AccountPanel() {
             <p className="text-sm text-steel">GitHub connection is required to complete setup.</p>
           ) : null}
           <div className={`grid gap-2 ${authMode === "create" ? "sm:grid-cols-2" : ""}`}>
-            <input value={email} onChange={(event) => setEmail(event.target.value)} type="email" placeholder="Email" className="rounded-xl border border-black/10 bg-white px-3 py-2 text-sm" />
+            <input value={email} onChange={(event) => setEmail(event.target.value)} type="email" aria-label="Email" placeholder="Email" className="rounded-xl border border-black/10 bg-white px-3 py-2 text-sm" />
             {authMode === "create" ? (
-              <input value={username} onChange={(event) => setUsername(event.target.value)} placeholder="Username" className="rounded-xl border border-black/10 bg-white px-3 py-2 text-sm" />
+              <input value={username} onChange={(event) => setUsername(event.target.value)} aria-label="Username" placeholder="Username" className="rounded-xl border border-black/10 bg-white px-3 py-2 text-sm" />
             ) : null}
           </div>
           <button
@@ -181,7 +181,7 @@ export function AccountPanel() {
           </button>
           {verificationSent ? (
             <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
-              <input value={code} onChange={(event) => setCode(event.target.value)} placeholder="Verification code" className="rounded-xl border border-black/10 bg-white px-3 py-2 text-sm" />
+              <input value={code} onChange={(event) => setCode(event.target.value)} aria-label="Verification code" placeholder="Verification code" className="rounded-xl border border-black/10 bg-white px-3 py-2 text-sm" />
               <button type="button" onClick={verifyEmail} disabled={!code.trim()} className="rounded-full border border-black/10 bg-white px-4 py-2 text-sm font-medium text-ink disabled:cursor-not-allowed disabled:opacity-60">
                 Verify
               </button>

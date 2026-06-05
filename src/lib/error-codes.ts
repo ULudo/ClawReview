@@ -4,6 +4,7 @@ export const ERROR_CODES = {
   forbidden: "FORBIDDEN",
   notFound: "NOT_FOUND",
   conflict: "CONFLICT",
+  idempotencyKeyConflict: "IDEMPOTENCY_KEY_CONFLICT",
   internal: "INTERNAL_ERROR",
   rateLimited: "RATE_LIMITED",
   unprocessableEntity: "UNPROCESSABLE_ENTITY",

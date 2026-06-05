@@ -59,7 +59,7 @@ import {
   listPublicUserSummaries
 } from "@/lib/public-view";
 import { getRuntimeStore, persistRuntimeStore } from "@/lib/store/runtime";
-import { parseHostname, randomId } from "@/lib/utils";
+import { parseHostname, randomId, sha256Hex } from "@/lib/utils";
 import { assertEd25519PublicKeyFormat, parseSignedHeaders, verifyEd25519Signature, verifySignedRequest } from "@/lib/protocol/signatures";
 import type { Agent, Paper } from "@/lib/types";
 import type { ZodError } from "zod";
@@ -84,7 +84,13 @@ function getIdempotencyKey(req: NextRequest) {
 }
 
 function shouldAllowUnsignedDev() {
-  return (process.env.ALLOW_UNSIGNED_DEV || "false").toLowerCase() === "true";
+  const enabled = (process.env.ALLOW_UNSIGNED_DEV || "false").toLowerCase() === "true";
+  const appUrl = (process.env.NEXT_PUBLIC_APP_URL || "").trim().replace(/\/+$/, "");
+  const productionDeployment = process.env.VERCEL_ENV === "production" || appUrl === "https://clawreview.org";
+  if (enabled && productionDeployment) {
+    throw new Error("ALLOW_UNSIGNED_DEV must not be enabled in production");
+  }
+  return enabled;
 }
 
 function isAllowedDevHttpUrl(value: string) {
@@ -296,6 +302,45 @@ function paperListWithPublisher(
   }));
 }
 
+function reviewTargetsForAgent(
+  req: NextRequest,
+  store: Awaited<ReturnType<typeof getRuntimeStore>>,
+  agentId: string
+) {
+  const appUrl = getPublicAppUrl(req);
+  const apiUrl = `${appUrl}/api/v1`;
+  return store.listEligibleReviewTargetsForAgent(agentId).flatMap((target) => {
+    const paper = store.getPaper(target.paperId);
+    const version = store.getPaperVersion(target.paperVersionId);
+    if (!paper || !version) return [];
+    const summary = store.getPaperReviewCommentSummary(version.id);
+    return [{
+      paper_id: paper.id,
+      paper_version_id: version.id,
+      title: version.title,
+      abstract: version.abstract,
+      domains: version.domains,
+      keywords: version.keywords,
+      claim_types: version.claimTypes,
+      status: paper.latestStatus,
+      review_count: summary.reviewCount,
+      review_cap: summary.reviewCap,
+      publisher_agent_id: paper.publisherAgentId,
+      publisher_human: getPublicHumanIdentity(store, paper.publisherHumanId),
+      current_version: {
+        id: version.id,
+        version_number: version.versionNumber,
+        manuscript_format: version.manuscriptFormat ?? "markdown",
+        manuscript_available: Boolean(version.manuscriptSource)
+      },
+      web_url: `${appUrl}/papers/${paper.id}`,
+      paper_api_url: `${apiUrl}/papers/${encodeURIComponent(paper.id)}`,
+      paper_version_api_url: `${apiUrl}/papers/${encodeURIComponent(paper.id)}/versions/${encodeURIComponent(version.id)}`,
+      url: `${appUrl}/papers/${paper.id}`
+    }];
+  });
+}
+
 async function requireSignedAgentRequest(req: NextRequest, bodyText: string) {
   const store = await getRuntimeStore();
   const headers = parseSignedHeaders(req.headers);
@@ -333,10 +378,6 @@ async function requireSignedAgentRequest(req: NextRequest, bodyText: string) {
     return { ok: false as const, response: unauthorized("Signed request timestamp outside allowed window") };
   }
 
-  if (!store.recordNonce(agent.id, headers.nonce)) {
-    return { ok: false as const, response: conflict("Replay detected (nonce already used)") };
-  }
-
   try {
     const valid = verifySignedRequest({
       agent,
@@ -352,25 +393,40 @@ async function requireSignedAgentRequest(req: NextRequest, bodyText: string) {
     return { ok: false as const, response: badRequest(error instanceof Error ? error.message : "Signature verification failed") };
   }
 
+  const replay = await maybeReplayIdempotency(req, agent.id, bodyText);
+  if (replay) {
+    return { ok: false as const, response: replay };
+  }
+
+  if (!store.recordNonce(agent.id, headers.nonce)) {
+    return { ok: false as const, response: conflict("Replay detected (nonce already used)") };
+  }
+
   return { ok: true as const, agent, signedHeaders: headers, unsignedDev: false };
 }
 
-async function respondIdempotent(req: NextRequest, agentId: string | undefined, responseStatus: number, responseBody: unknown) {
+async function respondIdempotent(req: NextRequest, agentId: string | undefined, bodyText: string, responseStatus: number, responseBody: unknown) {
   const store = await getRuntimeStore();
   const idemKey = getIdempotencyKey(req);
   if (idemKey) {
-    store.setIdempotency(agentId, req.method, req.nextUrl.pathname, idemKey, responseStatus, responseBody);
+    store.setIdempotency(agentId, req.method, req.nextUrl.pathname, idemKey, sha256Hex(bodyText), responseStatus, responseBody);
   }
   await persistRuntimeStore(store);
   return responseStatus === 201 ? created(responseBody) : new Response(JSON.stringify(responseBody), { status: responseStatus, headers: { "content-type": "application/json" } });
 }
 
-async function maybeReplayIdempotency(req: NextRequest, agentId: string | undefined) {
+async function maybeReplayIdempotency(req: NextRequest, agentId: string | undefined, bodyText?: string) {
   const store = await getRuntimeStore();
   const idemKey = getIdempotencyKey(req);
   if (!idemKey) return null;
   const record = store.getIdempotency(agentId, req.method, req.nextUrl.pathname, idemKey);
   if (!record) return null;
+  const requestBodyHash = sha256Hex(bodyText ?? await req.clone().text());
+  if (record.requestBodyHash && record.requestBodyHash !== requestBodyHash) {
+    return conflict("Idempotency-Key was already used with a different request body", {
+      errorCode: ERROR_CODES.idempotencyKeyConflict
+    });
+  }
   return new Response(JSON.stringify(record.responseBody), {
     status: record.responseStatus,
     headers: { "content-type": "application/json", "x-idempotent-replay": "true" }
@@ -1014,6 +1070,15 @@ export async function GET(req: NextRequest) {
       return ok({ agents: store.listAgents() });
     }
 
+    if (segments.length === 1 && segments[0] === "review-targets") {
+      const agentId = req.nextUrl.searchParams.get("agent_id")?.trim();
+      if (!agentId) return badRequest("agent_id is required", undefined, { errorCode: ERROR_CODES.badRequest });
+      const agent = store.getAgent(agentId);
+      if (!agent) return notFound("Agent not found");
+      if (agent.status !== "active") return forbidden("Agent is not active");
+      return ok({ targets: reviewTargetsForAgent(req, store, agent.id) });
+    }
+
     if (segments.length === 2 && segments[0] === "agents") {
       const agent = store.getAgent(segments[1]);
       if (!agent) return notFound("Agent not found");
@@ -1022,14 +1087,29 @@ export async function GET(req: NextRequest) {
 
     if (segments.length === 3 && segments[0] === "agents" && segments[1] === "claim") {
       const claimToken = decodeURIComponent(segments[2]);
+      const softLookup = req.nextUrl.searchParams.get("soft") === "true";
       const ticket = store.getAgentClaimTicketByToken(claimToken);
       if (!ticket) {
+        if (softLookup) {
+          return ok({
+            claim: null,
+            claim_status: "not_found",
+            error_code: ERROR_CODES.claimTokenInvalid
+          });
+        }
         return notFound("Claim ticket not found", {
           errorCode: ERROR_CODES.claimTokenInvalid,
           hint: "Retry this link in a few seconds or re-register the agent."
         });
       }
       if (new Date(ticket.expiresAt).getTime() <= Date.now()) {
+        if (softLookup) {
+          return ok({
+            claim: null,
+            claim_status: "expired",
+            error_code: ERROR_CODES.claimTokenExpired
+          });
+        }
         return unauthorized("Claim ticket expired", {
           errorCode: ERROR_CODES.claimTokenExpired,
           hint: "Re-register the agent to issue a new claim link."
@@ -1179,6 +1259,7 @@ export async function GET(req: NextRequest) {
 
     return notFound("Route not found");
   } catch (error) {
+    console.error("API GET failed", req.nextUrl.pathname, error);
     return serverError("Internal server error", { errorCode: ERROR_CODES.internal });
   }
 }
@@ -1382,7 +1463,7 @@ export async function POST(req: NextRequest) {
       if (!signed.ok) return signed.response;
       const agent = signed.agent;
       if (!agent) return badRequest("Unsigned dev mode cannot initialize assets", undefined, { errorCode: ERROR_CODES.badRequest });
-      const replay = await maybeReplayIdempotency(req, agent.id);
+      const replay = await maybeReplayIdempotency(req, agent.id, bodyText);
       if (replay) return replay;
 
       const parsed = assetInitRequestSchema.safeParse(parseJsonBody<unknown>(bodyText || "{}"));
@@ -1427,7 +1508,7 @@ export async function POST(req: NextRequest) {
           expires_at: intent.uploadTokenExpiresAt
         }
       };
-      return await respondIdempotent(req, agent.id, 201, responseBody);
+      return await respondIdempotent(req, agent.id, bodyText, 201, responseBody);
     }
 
     if (segments.length === 2 && segments[0] === "assets" && segments[1] === "complete") {
@@ -1435,7 +1516,7 @@ export async function POST(req: NextRequest) {
       if (!signed.ok) return signed.response;
       const agent = signed.agent;
       if (!agent) return badRequest("Unsigned dev mode cannot complete assets", undefined, { errorCode: ERROR_CODES.badRequest });
-      const replay = await maybeReplayIdempotency(req, agent.id);
+      const replay = await maybeReplayIdempotency(req, agent.id, bodyText);
       if (replay) return replay;
 
       const parsed = assetCompleteRequestSchema.safeParse(parseJsonBody<unknown>(bodyText || "{}"));
@@ -1467,11 +1548,11 @@ export async function POST(req: NextRequest) {
         }
         return conflict(result.error ?? "Asset completion failed", { errorCode: ERROR_CODES.conflict });
       }
-      return await respondIdempotent(req, agent.id, 200, { asset: getPublicAssetResponse(req, result.asset), completed: true });
+      return await respondIdempotent(req, agent.id, bodyText, 200, { asset: getPublicAssetResponse(req, result.asset), completed: true });
     }
 
     if (segments.length === 2 && segments[0] === "agents" && segments[1] === "register") {
-      const replay = await maybeReplayIdempotency(req, undefined);
+      const replay = await maybeReplayIdempotency(req, undefined, bodyText);
       if (replay) return replay;
       const registrationRateLimit = applyRateLimit(
         store,
@@ -1586,11 +1667,11 @@ export async function POST(req: NextRequest) {
           claimUrl: `${appBaseUrl}/claim/${encodeURIComponent(claimTicket.token)}`
         }
       };
-      return await respondIdempotent(req, undefined, 201, responseBody);
+      return await respondIdempotent(req, undefined, bodyText, 201, responseBody);
     }
 
     if (segments.length === 2 && segments[0] === "agents" && segments[1] === "verify-challenge") {
-      const replay = await maybeReplayIdempotency(req, undefined);
+      const replay = await maybeReplayIdempotency(req, undefined, bodyText);
       if (replay) return replay;
       const verifyRateLimit = applyRateLimit(
         store,
@@ -1641,7 +1722,7 @@ export async function POST(req: NextRequest) {
           active: activated.status === "active"
         }
       };
-      return await respondIdempotent(req, undefined, 200, responseBody);
+      return await respondIdempotent(req, undefined, bodyText, 200, responseBody);
     }
 
     if (segments.length === 3 && segments[0] === "agents" && segments[2] === "challenge") {
@@ -1682,7 +1763,7 @@ export async function POST(req: NextRequest) {
     }
 
     if (segments.length === 2 && segments[0] === "agents" && segments[1] === "claim") {
-      const replay = await maybeReplayIdempotency(req, undefined);
+      const replay = await maybeReplayIdempotency(req, undefined, bodyText);
       if (replay) return replay;
       const claimRateLimit = applyRateLimit(
         store,
@@ -1735,7 +1816,7 @@ export async function POST(req: NextRequest) {
         }
         return badRequest(errorMessage, undefined, { errorCode: ERROR_CODES.badRequest });
       }
-      return await respondIdempotent(req, undefined, 200, {
+      return await respondIdempotent(req, undefined, bodyText, 200, {
         agent: result.agent,
         claim: {
           ticketId: result.ticket.id,
@@ -1760,9 +1841,9 @@ export async function POST(req: NextRequest) {
       const signedRateLimit = applyCommonSignedWriteLimits(store, agent);
       if (signedRateLimit) return signedRateLimit;
 
-      const replay = await maybeReplayIdempotency(req, agent.id);
+      const replay = await maybeReplayIdempotency(req, agent.id, bodyText);
       if (replay) return replay;
-      return await respondIdempotent(req, agent.id, 200, {
+      return await respondIdempotent(req, agent.id, bodyText, 200, {
         agent,
         reverified: false,
         message: "Key-only protocol active. No external manifest revalidation."
@@ -1785,7 +1866,7 @@ export async function POST(req: NextRequest) {
         rawPayload,
         parsedPayload: parsedBody
       });
-      return ok(report);
+      return await respondIdempotent(req, agent.id, bodyText, 200, report);
     }
 
     if (segments.length === 1 && segments[0] === "papers") {
@@ -1810,7 +1891,7 @@ export async function POST(req: NextRequest) {
       );
       if (paperDailyLimit) return paperDailyLimit;
 
-      const replay = await maybeReplayIdempotency(req, agent.id);
+      const replay = await maybeReplayIdempotency(req, agent.id, bodyText);
       if (replay) return replay;
 
       const parsedBody = paperSubmissionRequestSchema.safeParse(parseJsonBody<unknown>(bodyText || "{}"));
@@ -1891,7 +1972,7 @@ export async function POST(req: NextRequest) {
         submissionReviewRequirementBypassed: (submissionGate?.nextSubmissionReviewRequirement ?? REVIEWS_REQUIRED_PER_SUBMISSION) === 0
       });
       store.recomputePaperDecision(createdPaper.paper.id, createdPaper.version.id);
-      return await respondIdempotent(req, agent.id, 201, createdPaper);
+      return await respondIdempotent(req, agent.id, bodyText, 201, createdPaper);
     }
 
     if (segments.length === 3 && segments[0] === "papers" && segments[2] === "versions") {
@@ -1923,7 +2004,7 @@ export async function POST(req: NextRequest) {
       );
       if (paperDailyLimit) return paperDailyLimit;
 
-      const replay = await maybeReplayIdempotency(req, agent.id);
+      const replay = await maybeReplayIdempotency(req, agent.id, bodyText);
       if (replay) return replay;
 
       const parsedBody = paperVersionRequestSchema.safeParse(parseJsonBody<unknown>(bodyText || "{}"));
@@ -1995,7 +2076,7 @@ export async function POST(req: NextRequest) {
       });
       if (!createdVersion) return serverError("Failed to create paper version", { errorCode: ERROR_CODES.internal });
       store.recomputePaperDecision(paperId, createdVersion.version.id);
-      return await respondIdempotent(req, agent.id, 201, createdVersion);
+      return await respondIdempotent(req, agent.id, bodyText, 201, createdVersion);
     }
 
     if (segments.length === 3 && segments[0] === "papers" && segments[2] === "reviews") {
@@ -2020,7 +2101,7 @@ export async function POST(req: NextRequest) {
       );
       if (dailyReviewLimit) return dailyReviewLimit;
 
-      const replay = await maybeReplayIdempotency(req, agent.id);
+      const replay = await maybeReplayIdempotency(req, agent.id, bodyText);
       if (replay) return replay;
 
       const parsedBody = paperReviewCommentSubmissionSchema.safeParse(parseJsonBody<unknown>(bodyText || "{}"));
@@ -2081,7 +2162,7 @@ export async function POST(req: NextRequest) {
         }
         return conflict(result.error ?? "Failed to submit paper review comment", { errorCode: ERROR_CODES.conflict });
       }
-      return await respondIdempotent(req, agent.id, 201, result);
+      return await respondIdempotent(req, agent.id, bodyText, 201, result);
     }
 
     if (segments.length === 4 && segments[0] === "operator" && segments[1] === "agents" && ["suspend", "reactivate"].includes(segments[3])) {
@@ -2123,6 +2204,7 @@ export async function POST(req: NextRequest) {
     if (error instanceof SyntaxError) {
       return badRequest("Invalid JSON body", undefined, { errorCode: ERROR_CODES.badRequest });
     }
+    console.error("API POST failed", req.nextUrl.pathname, error);
     return serverError("Internal server error", { errorCode: ERROR_CODES.internal });
   }
 }
@@ -2164,7 +2246,8 @@ export async function PUT(req: NextRequest) {
     }
 
     return notFound("Route not found", { errorCode: ERROR_CODES.notFound });
-  } catch {
+  } catch (error) {
+    console.error("API PUT failed", req.nextUrl.pathname, error);
     return serverError("Internal server error", { errorCode: ERROR_CODES.internal });
   }
 }

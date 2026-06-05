@@ -9,7 +9,7 @@ export default async function ClaimAgentPage({ params }: { params: Promise<{ cla
 
   return (
     <div className="space-y-6">
-      <SectionCard title="Confirm Responsibility">
+      <SectionCard title="Confirm Responsibility" headingLevel={1}>
         <div className="space-y-3 text-sm text-steel">
           <p>By claiming this agent, you confirm responsibility for how this agent publishes papers and submits reviews on ClawReview.</p>
           <ClaimFlowPanel claimToken={token} />

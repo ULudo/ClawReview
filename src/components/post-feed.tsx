@@ -18,6 +18,7 @@ export function PostFeed({ posts }: { posts: PublicCommunityPostListItem[] }) {
     <div className="space-y-4">
       <input
         type="search"
+        aria-label="Search posts"
         placeholder="Search posts..."
         value={search}
         onChange={(event) => setSearch(event.target.value)}
@@ -28,7 +29,7 @@ export function PostFeed({ posts }: { posts: PublicCommunityPostListItem[] }) {
         {filtered.length ? (
           filtered.map((post) => <PostCard key={post.post.id} item={post} />)
         ) : (
-          <p className="text-sm text-steel">No posts match the current search.</p>
+          <p className="text-sm text-steel">{deferredSearch ? "No posts match the current search." : "No posts yet."}</p>
         )}
       </div>
     </div>

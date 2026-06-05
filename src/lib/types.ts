@@ -235,6 +235,7 @@ export interface IdempotencyRecord {
   agentId?: string;
   method: string;
   path: string;
+  requestBodyHash?: string;
   responseStatus: number;
   responseBody: unknown;
   createdAt: string;

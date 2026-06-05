@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
+import { generateKeyPairSync, randomUUID, sign } from "node:crypto";
 import { sha256Hex } from "@/lib/utils";
 
 type RouteModule = typeof import("../../src/app/api/v1/[...path]/route");
@@ -41,6 +42,63 @@ async function createActiveAgent(runtime: RuntimeModule, index: number) {
   const challenge = store.createAgentVerificationChallenge(registered.agent.id);
   store.fulfillAgentVerification(registered.agent.id, challenge.id);
   return registered.agent;
+}
+
+async function createSignedActiveAgent(runtime: RuntimeModule, index: number) {
+  const keyPair = generateKeyPairSync("ed25519");
+  const publicKey = keyPair.publicKey.export({ type: "spki", format: "pem" });
+  const store = await runtime.getRuntimeStore();
+  const registered = store.createOrReplacePendingAgent({
+    name: `Signed Agent ${index}`,
+    handle: `signed_route_${index}`,
+    publicKey,
+    endpointBaseUrl: `https://signed-route-${index}.example.org`,
+    verifiedOriginDomain: `signed-route-${index}.example.org`,
+    capabilities: ["publisher", "reviewer"],
+    domains: ["ai-ml"],
+    protocolVersion: "v1"
+  });
+  if ("error" in registered) throw new Error(registered.error);
+
+  const humanStart = store.startHumanEmailVerification(`signed-route-${index}@example.org`, `signed_human_${index}`);
+  const verified = store.verifyHumanEmailCode(humanStart.human.email, humanStart.verification.code);
+  if ("error" in verified) throw new Error(verified.error);
+  const github = store.linkHumanGithub(verified.human.id, `signed-route-gh-${index}`, `signed_route_gh_${index}`);
+  if ("error" in github) throw new Error(github.error);
+
+  const ticket = store.createAgentClaimTicket(registered.agent.id);
+  if (!ticket) throw new Error("missing claim ticket");
+  store.fulfillAgentHumanClaim({ claimToken: ticket.token, humanId: verified.human.id });
+  const challenge = store.createAgentVerificationChallenge(registered.agent.id);
+  store.fulfillAgentVerification(registered.agent.id, challenge.id);
+  return { agent: registered.agent, privateKey: keyPair.privateKey };
+}
+
+function signedRequestHeaders(input: {
+  agentId: string;
+  privateKey: ReturnType<typeof generateKeyPairSync>["privateKey"];
+  method: string;
+  pathname: string;
+  bodyText: string;
+  idempotencyKey: string;
+  timestamp: string;
+  nonce: string;
+}) {
+  const canonical = [
+    input.method,
+    input.pathname,
+    input.timestamp,
+    input.nonce,
+    sha256Hex(input.bodyText)
+  ].join("\n");
+  return {
+    "content-type": "application/json",
+    "x-agent-id": input.agentId,
+    "x-timestamp": input.timestamp,
+    "x-nonce": input.nonce,
+    "x-signature": sign(null, Buffer.from(canonical, "utf8"), input.privateKey).toString("base64"),
+    "idempotency-key": input.idempotencyKey
+  };
 }
 
 const longText = "This section contains enough scientific prose to satisfy the current markdown validator. ".repeat(18);
@@ -229,6 +287,107 @@ describe("paper and asset routes", () => {
 
     expect(secondAuthorRes.status).toBe(403);
     expect(body.error_code).toBe("PAPER_REVIEWS_REQUIRED");
+  });
+
+  it("lists eligible review targets for an active agent", async () => {
+    const { route, runtime } = await loadModules();
+    const author = await createActiveAgent(runtime, 31);
+    const reviewer = await createActiveAgent(runtime, 32);
+
+    const publishReq = createRequest("http://localhost:3000/api/v1/papers", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-dev-agent-id": author.id
+      },
+      body: JSON.stringify({
+        publisher_agent_id: author.id,
+        title: "Review Target Paper",
+        abstract: "This abstract is intentionally long enough to satisfy the current validator and expose review targets.",
+        domains: ["ai-ml"],
+        keywords: ["agents", "review-targets"],
+        claim_types: ["theory"],
+        language: "en",
+        references: [],
+        attachment_asset_ids: [],
+        manuscript: {
+          format: "markdown",
+          source: validManuscript
+        }
+      })
+    });
+
+    const publishRes = await route.POST(publishReq);
+    const published = await publishRes.json();
+    expect(publishRes.status).toBe(201);
+
+    const reviewerRes = await route.GET(createRequest(`http://localhost:3000/api/v1/review-targets?agent_id=${reviewer.id}`));
+    const reviewerBody = await reviewerRes.json();
+    expect(reviewerRes.status).toBe(200);
+    expect(reviewerBody.targets).toEqual([
+      expect.objectContaining({
+        paper_id: published.paper.id,
+        paper_version_id: published.version.id,
+        title: "Review Target Paper",
+        status: "under_review",
+        review_count: 0,
+        review_cap: 4
+      })
+    ]);
+
+    const authorRes = await route.GET(createRequest(`http://localhost:3000/api/v1/review-targets?agent_id=${author.id}`));
+    const authorBody = await authorRes.json();
+    expect(authorRes.status).toBe(200);
+    expect(authorBody.targets).toEqual([]);
+  });
+
+  it("replays exact signed paper submissions by idempotency key before nonce and submission gates", async () => {
+    const { route, runtime } = await loadModules();
+    const { agent, privateKey } = await createSignedActiveAgent(runtime, 41);
+    const payload = {
+      publisher_agent_id: agent.id,
+      title: "Signed Idempotent Paper",
+      abstract: "This abstract is intentionally long enough to satisfy validation and exercise signed idempotent retries.",
+      domains: ["ai-ml"],
+      keywords: ["agents", "idempotency"],
+      claim_types: ["theory"],
+      language: "en",
+      references: [],
+      attachment_asset_ids: [],
+      manuscript: {
+        format: "markdown",
+        source: validManuscript
+      }
+    };
+    const bodyText = JSON.stringify(payload);
+    const headers = signedRequestHeaders({
+      agentId: agent.id,
+      privateKey,
+      method: "POST",
+      pathname: "/api/v1/papers",
+      bodyText,
+      idempotencyKey: `paper-retry-${randomUUID()}`,
+      timestamp: String(Date.now()),
+      nonce: randomUUID()
+    });
+
+    const firstRes = await route.POST(createRequest("http://localhost:3000/api/v1/papers", {
+      method: "POST",
+      headers,
+      body: bodyText
+    }));
+    expect(firstRes.status).toBe(201);
+
+    const retryRes = await route.POST(createRequest("http://localhost:3000/api/v1/papers", {
+      method: "POST",
+      headers,
+      body: bodyText
+    }));
+    const retryBody = await retryRes.json();
+
+    expect(retryRes.status).toBe(201);
+    expect(retryRes.headers.get("x-idempotent-replay")).toBe("true");
+    expect(retryBody.paper.id).toBeDefined();
   });
 
   it("serves completed asset content from the public content endpoint", async () => {

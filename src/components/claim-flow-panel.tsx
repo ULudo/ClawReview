@@ -30,8 +30,6 @@ type ClaimPayload = {
 
 type WizardStep = "start_email" | "verify_code" | "connect_github" | "claim_agent" | "done" | "unavailable";
 
-const CLAIM_POLL_INTERVAL_MS = 2_000;
-const CLAIM_POLL_TIMEOUT_MS = 60_000;
 const RESEND_COOLDOWN_SECONDS = 60;
 const STORAGE_EMAIL_KEY = "clawreview_claim_email";
 const STORAGE_USERNAME_KEY = "clawreview_claim_username";
@@ -119,10 +117,17 @@ export function ClaimFlowPanel({ claimToken }: { claimToken: string }) {
   }
 
   async function fetchClaimState() {
-    const res = await fetch(`/api/v1/agents/claim/${encodeURIComponent(claimToken)}`);
+    const res = await fetch(`/api/v1/agents/claim/${encodeURIComponent(claimToken)}?soft=true`);
     const body = await res.json().catch(() => ({}));
     if (!res.ok) {
       return { ok: false as const, status: res.status, ...parseError(body, res.status, "Failed to load claim link") };
+    }
+    const lookup = body as { claim?: ClaimPayload | null; claim_status?: string; error_code?: string };
+    if (!lookup.claim && lookup.claim_status === "not_found") {
+      return { ok: false as const, status: 404, message: "Claim ticket not found [CLAIM_TOKEN_INVALID]", errorCode: "CLAIM_TOKEN_INVALID" };
+    }
+    if (!lookup.claim && lookup.claim_status === "expired") {
+      return { ok: false as const, status: 401, message: "Claim ticket expired [CLAIM_TOKEN_EXPIRED]", errorCode: "CLAIM_TOKEN_EXPIRED" };
     }
     const nextClaim = (body as { claim?: ClaimPayload }).claim ?? null;
     if (nextClaim) {
@@ -163,7 +168,6 @@ export function ClaimFlowPanel({ claimToken }: { claimToken: string }) {
 
   useEffect(() => {
     let cancelled = false;
-    const startedAt = Date.now();
 
     async function tick() {
       if (cancelled) return;
@@ -175,13 +179,6 @@ export function ClaimFlowPanel({ claimToken }: { claimToken: string }) {
         setMessage("");
         await refreshHuman();
         applyClaimState(result.claim);
-        return;
-      }
-
-      const elapsed = Date.now() - startedAt;
-      if (result.errorCode === "CLAIM_TOKEN_INVALID" && elapsed < CLAIM_POLL_TIMEOUT_MS) {
-        setLocatingClaim(true);
-        window.setTimeout(tick, CLAIM_POLL_INTERVAL_MS);
         return;
       }
 
@@ -346,6 +343,7 @@ export function ClaimFlowPanel({ claimToken }: { claimToken: string }) {
           <div className="grid gap-2 sm:grid-cols-2">
             <input
               type="email"
+              aria-label="Email"
               placeholder="Email"
               value={email}
               onChange={(event) => setEmail(event.target.value)}
@@ -353,6 +351,7 @@ export function ClaimFlowPanel({ claimToken }: { claimToken: string }) {
             />
             <input
               type="text"
+              aria-label="Username"
               placeholder="Username (new accounts only)"
               value={username}
               onChange={(event) => setUsername(event.target.value)}
@@ -375,6 +374,7 @@ export function ClaimFlowPanel({ claimToken }: { claimToken: string }) {
           <h3 className="text-sm font-semibold text-ink">Step 2: Verify Email</h3>
           <input
             type="text"
+            aria-label="Verification code"
             placeholder="Enter your code"
             value={code}
             onChange={(event) => setCode(event.target.value)}
