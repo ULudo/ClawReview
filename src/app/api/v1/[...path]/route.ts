@@ -341,6 +341,26 @@ function reviewTargetsForAgent(
   });
 }
 
+function publicRead(data: unknown) {
+  return ok(data, {
+    headers: {
+      "cache-control": "public, s-maxage=15, stale-while-revalidate=120"
+    }
+  });
+}
+
+function publicUserSummariesWithReviewGate(store: Awaited<ReturnType<typeof getRuntimeStore>>) {
+  return listPublicUserSummaries(store).map((user) => {
+    const gate = store.getSubmissionGateForHuman(user.humanId);
+    const outstandingReviewCount = gate?.outstandingReviewCount ?? 0;
+    return {
+      ...user,
+      outstandingReviewCount,
+      reviewRequirementSatisfied: outstandingReviewCount === 0
+    };
+  });
+}
+
 async function requireSignedAgentRequest(req: NextRequest, bodyText: string) {
   const store = await getRuntimeStore();
   const headers = parseSignedHeaders(req.headers);
@@ -982,11 +1002,11 @@ export async function GET(req: NextRequest) {
     }
 
     if (segments.length === 1 && segments[0] === "users") {
-      return ok({ users: listPublicUserSummaries(store) });
+      return publicRead({ users: publicUserSummariesWithReviewGate(store) });
     }
 
     if (segments.length === 1 && segments[0] === "posts") {
-      return ok({ posts: getPublicCommunityPostListItems(store, store.listCommunityPosts()) });
+      return publicRead({ posts: getPublicCommunityPostListItems(store, store.listCommunityPosts()) });
     }
 
     if (segments.length === 2 && segments[0] === "posts") {
@@ -1067,7 +1087,7 @@ export async function GET(req: NextRequest) {
     }
 
     if (segments.length === 1 && segments[0] === "agents") {
-      return ok({ agents: store.listAgents() });
+      return publicRead({ agents: store.listAgents() });
     }
 
     if (segments.length === 1 && segments[0] === "review-targets") {
@@ -1165,7 +1185,7 @@ export async function GET(req: NextRequest) {
       const status = req.nextUrl.searchParams.get("status") || undefined;
       const domain = req.nextUrl.searchParams.get("domain") || undefined;
       const papers = store.listPapers({ status: status || undefined, domain });
-      return ok({ papers: wantsReviewMeta(req) ? paperListWithReviewMeta(store, papers) : paperListWithPublisher(store, papers) });
+      return publicRead({ papers: wantsReviewMeta(req) ? paperListWithReviewMeta(store, papers) : paperListWithPublisher(store, papers) });
     }
 
     if (segments.length === 2 && segments[0] === "papers") {
@@ -1228,7 +1248,7 @@ export async function GET(req: NextRequest) {
     }
 
     if (segments.length === 1 && segments[0] === "domains") {
-      return ok({ domains: store.listDomains() });
+      return publicRead({ domains: store.listDomains() });
     }
 
     if (segments.length === 3 && segments[0] === "domains" && segments[2] === "guidelines") {
@@ -1238,17 +1258,17 @@ export async function GET(req: NextRequest) {
     }
 
     if (segments.length === 1 && segments[0] === "accepted") {
-      return ok({ papers: paperListWithPublisher(store, store.listPapers({ status: "accepted" })) });
+      return publicRead({ papers: paperListWithPublisher(store, store.listPapers({ status: "accepted" })) });
     }
 
     if (segments.length === 1 && segments[0] === "under-review") {
       const domain = req.nextUrl.searchParams.get("domain") || undefined;
       const papers = store.listPapers({ status: "under_review", domain });
-      return ok({ papers: wantsReviewMeta(req) ? paperListWithReviewMeta(store, papers) : paperListWithPublisher(store, papers) });
+      return publicRead({ papers: wantsReviewMeta(req) ? paperListWithReviewMeta(store, papers) : paperListWithPublisher(store, papers) });
     }
 
     if (segments.length === 1 && segments[0] === "rejected-archive") {
-      return ok({ papers: paperListWithPublisher(store, store.listPapers({ status: "rejected" })) });
+      return publicRead({ papers: paperListWithPublisher(store, store.listPapers({ status: "rejected" })) });
     }
 
     if (segments.length === 2 && segments[0] === "operator" && segments[1] === "audit-events") {

@@ -1,14 +1,12 @@
-import { PaperCard } from "@/components/paper-card";
+import { AsyncPaperList } from "@/components/async-paper-lists";
 import { SectionCard } from "@/components/section-card";
-import { getPublicDashboardData } from "@/lib/public-selectors";
 
-export const dynamic = "force-dynamic";
+export const dynamic = "force-static";
 
-export default async function AcceptedPage() {
-  const papers = (await getPublicDashboardData()).accepted;
+export default function AcceptedPage() {
   return (
     <SectionCard title="Accepted Research" headingLevel={1} description="Papers that passed role coverage, threshold votes, and no-open-critical checks.">
-      <div className="grid gap-3">{papers.length ? papers.map((paper) => <PaperCard key={paper.paper.id} item={paper} />) : <p className="text-sm text-steel">No accepted papers yet.</p>}</div>
+      <AsyncPaperList endpoint="/api/v1/accepted" empty="No accepted papers yet." />
     </SectionCard>
   );
 }

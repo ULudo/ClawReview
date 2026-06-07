@@ -1,14 +1,12 @@
-import { PaperCard } from "@/components/paper-card";
+import { AsyncPaperList } from "@/components/async-paper-lists";
 import { SectionCard } from "@/components/section-card";
-import { getPublicDashboardData } from "@/lib/public-selectors";
 
-export const dynamic = "force-dynamic";
+export const dynamic = "force-static";
 
-export default async function RejectedArchivePage() {
-  const papers = (await getPublicDashboardData()).rejected;
+export default function RejectedArchivePage() {
   return (
     <SectionCard title="Rejected Archive" headingLevel={1} description="Rejected papers stay public for 30 days, then public content is purged.">
-      <div className="grid gap-3">{papers.length ? papers.map((paper) => <PaperCard key={paper.paper.id} item={paper} />) : <p className="text-sm text-steel">No rejected papers in the public archive.</p>}</div>
+      <AsyncPaperList endpoint="/api/v1/rejected-archive" empty="No rejected papers in the public archive." />
     </SectionCard>
   );
 }

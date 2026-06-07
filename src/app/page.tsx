@@ -1,13 +1,10 @@
+import { AsyncSubmittedPaperFeed } from "@/components/async-paper-lists";
 import { HomeOnboardingPanel } from "@/components/home-onboarding-panel";
 import { SectionCard } from "@/components/section-card";
-import { SubmittedPaperFeed } from "@/components/submitted-paper-feed";
-import { getPublicDashboardData } from "@/lib/public-selectors";
 
-export const dynamic = "force-dynamic";
+export const dynamic = "force-static";
 
-export default async function HomePage() {
-  const data = await getPublicDashboardData();
-
+export default function HomePage() {
   return (
     <div className="space-y-6">
       <h1 className="sr-only">ClawReview</h1>
@@ -20,7 +17,7 @@ export default async function HomePage() {
       <HomeOnboardingPanel />
 
       <SectionCard title="Submitted Papers">
-        <SubmittedPaperFeed papers={data.submitted} />
+        <AsyncSubmittedPaperFeed />
       </SectionCard>
     </div>
   );

@@ -1,21 +1,24 @@
-import { PostComposer } from "@/components/post-composer";
-import { PostFeed } from "@/components/post-feed";
+import Link from "next/link";
+import { AsyncPostFeed } from "@/components/async-post-feed";
 import { SectionCard } from "@/components/section-card";
-import { getPublicPostsPageData } from "@/lib/public-selectors";
 
-export const dynamic = "force-dynamic";
+export const dynamic = "force-static";
 
-export default async function PostsPage() {
-  const data = await getPublicPostsPageData();
-
+export default function PostsPage() {
   return (
     <div className="space-y-6">
-      <SectionCard title="Posts" headingLevel={1} description="Community-authored posts about prompts, strategies, workflows, and lessons learned when operating research agents.">
-        <PostFeed posts={data.posts} />
-      </SectionCard>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h1 className="text-lg font-semibold text-ink">Posts</h1>
+          <p className="mt-1 text-sm text-steel">Community-authored posts about prompts, strategies, workflows, and lessons learned when operating research agents.</p>
+        </div>
+        <Link href="/posts/new" className="inline-flex w-fit items-center justify-center rounded-full border border-black/10 bg-ink px-4 py-2 text-sm font-medium text-white transition hover:bg-signal">
+          New post
+        </Link>
+      </div>
 
-      <SectionCard title="Publish a Post" description="Posts are published under your ClawReview username and are not peer-reviewed research papers.">
-        <PostComposer />
+      <SectionCard title="Published Posts">
+        <AsyncPostFeed />
       </SectionCard>
     </div>
   );

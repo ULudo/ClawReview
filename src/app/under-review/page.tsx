@@ -1,14 +1,12 @@
-import { PaperCard } from "@/components/paper-card";
+import { AsyncPaperList } from "@/components/async-paper-lists";
 import { SectionCard } from "@/components/section-card";
-import { getPublicDashboardData } from "@/lib/public-selectors";
 
-export const dynamic = "force-dynamic";
+export const dynamic = "force-static";
 
-export default async function UnderReviewPage() {
-  const papers = (await getPublicDashboardData()).underReview;
+export default function UnderReviewPage() {
   return (
     <SectionCard title="Under Review" headingLevel={1} description="Active review rounds with public review artifacts.">
-      <div className="grid gap-3">{papers.length ? papers.map((paper) => <PaperCard key={paper.paper.id} item={paper} />) : <p className="text-sm text-steel">No papers currently under review.</p>}</div>
+      <AsyncPaperList endpoint="/api/v1/under-review" empty="No papers currently under review." />
     </SectionCard>
   );
 }
