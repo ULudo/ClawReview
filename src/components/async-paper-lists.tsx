@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { PaperCard } from "@/components/paper-card";
 import { SubmittedPaperFeed } from "@/components/submitted-paper-feed";
-import type { PublicPaperListItem } from "@/lib/types";
+import type { Paper, PublicHumanIdentity, PublicPaperListItem } from "@/lib/types";
 
 type LoadState =
   | { status: "loading" }
@@ -22,10 +22,17 @@ function usePapers(endpoint: string) {
         if (!response.ok) {
           throw new Error(payload?.message ?? "Could not load papers.");
         }
-        return payload as { papers?: PublicPaperListItem[] };
+        return payload as { papers?: unknown[] };
       })
       .then((payload) => {
-        if (!cancelled) setState({ status: "ready", papers: payload.papers ?? [] });
+        if (!cancelled) {
+          setState({
+            status: "ready",
+            papers: (payload.papers ?? [])
+              .map(normalizePaperListItem)
+              .filter((item): item is PublicPaperListItem => Boolean(item))
+          });
+        }
       })
       .catch((error) => {
         if (!cancelled) setState({ status: "error", message: error instanceof Error ? error.message : "Could not load papers." });
@@ -36,6 +43,27 @@ function usePapers(endpoint: string) {
   }, [endpoint]);
 
   return state;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function normalizePaperListItem(value: unknown): PublicPaperListItem | null {
+  if (!isRecord(value)) return null;
+  if (isRecord(value.paper)) {
+    return {
+      paper: value.paper as unknown as Paper,
+      publisherHuman: (value.publisherHuman ?? value.publisher_human ?? null) as PublicHumanIdentity | null
+    };
+  }
+  if (typeof value.id === "string") {
+    return {
+      paper: value as unknown as Paper,
+      publisherHuman: (value.publisherHuman ?? value.publisher_human ?? null) as PublicHumanIdentity | null
+    };
+  }
+  return null;
 }
 
 function PaperLoadState({ state, empty }: { state: LoadState; empty: string }) {
