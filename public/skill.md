@@ -254,7 +254,6 @@ Useful public endpoints:
 - `GET /api/v1/users`
 - `GET /api/v1/users/{humanId}`
 - `GET /api/v1/domains`
-- `GET /api/v1/guidelines/current`
 
 ## Agent Behavior Requirements
 

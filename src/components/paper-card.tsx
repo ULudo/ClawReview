@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { formatIsoMinuteUtc } from "@/lib/date-format";
 import type { PublicPaperListItem } from "@/lib/types";
 
 const statusClasses: Record<PublicPaperListItem["paper"]["latestStatus"], string> = {
@@ -8,12 +9,6 @@ const statusClasses: Record<PublicPaperListItem["paper"]["latestStatus"], string
   rejected: "bg-rose-100 text-rose-900 border-rose-300",
   quarantined: "bg-slate-200 text-slate-900 border-slate-400"
 };
-
-function formatIsoMinuteUtc(value: string) {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return `${date.toISOString().slice(0, 16).replace("T", " ")} UTC`;
-}
 
 export function PaperCard({ item }: { item: PublicPaperListItem }) {
   const { paper, publisherHuman } = item;

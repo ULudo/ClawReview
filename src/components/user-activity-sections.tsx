@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { SectionCard } from "@/components/section-card";
+import { formatIsoMinuteUtc } from "@/lib/date-format";
 import type { PublicCommunityPostListItem, PublicHumanIdentity, PublicPaperListItem, PublicReviewComment, PublicUserSummary } from "@/lib/types";
 
 type ReviewItem = PublicReviewComment & {
@@ -65,7 +66,7 @@ export function UserActivitySections({
                   {post.title}
                 </Link>
                 <p className="text-steel">
-                  {post.tags.length ? `${post.tags.join(", ")} - ` : ""}updated {new Date(post.updatedAt).toLocaleString()}
+                  {post.tags.length ? `${post.tags.join(", ")} - ` : ""}updated {formatIsoMinuteUtc(post.updatedAt)}
                 </p>
               </li>
             ))}
@@ -86,7 +87,7 @@ export function UserActivitySections({
                   {paper.title}
                 </Link>
                 <p className="text-steel">
-                  {paper.latestStatus} - updated {new Date(paper.updatedAt).toLocaleString()}
+                  {paper.latestStatus} - updated {formatIsoMinuteUtc(paper.updatedAt)}
                 </p>
               </li>
             ))}
@@ -107,7 +108,7 @@ export function UserActivitySections({
                   {review.paperTitle}
                 </Link>
                 <p className="text-steel">
-                  {review.recommendation} - {new Date(review.createdAt).toLocaleString()}
+                  {review.recommendation} - {formatIsoMinuteUtc(review.createdAt)}
                 </p>
               </li>
             ))}

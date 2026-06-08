@@ -5,6 +5,7 @@ import type { Route } from "next";
 import { useEffect, useState } from "react";
 import { SectionCard } from "@/components/section-card";
 import { UserActivitySections } from "@/components/user-activity-sections";
+import { formatIsoMinuteUtc } from "@/lib/date-format";
 import type { PublicCommunityPostListItem, PublicHumanIdentity, PublicPaperListItem, PublicReviewComment, PublicUserSummary } from "@/lib/types";
 
 type ProfileReview = PublicReviewComment & {
@@ -251,7 +252,7 @@ export function AccountPanel() {
         id: post.id,
         label: post.title,
         href: `/posts/${post.id}` as Route,
-        meta: new Date(post.updatedAt).toLocaleString()
+        meta: formatIsoMinuteUtc(post.updatedAt)
       }))} />
     </div>
   );

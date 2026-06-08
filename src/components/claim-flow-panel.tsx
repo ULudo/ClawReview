@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { formatIsoMinuteUtc } from "@/lib/date-format";
 
 type HumanState = {
   id: string;
@@ -326,7 +327,7 @@ export function ClaimFlowPanel({ claimToken }: { claimToken: string }) {
       {claim ? (
         <div className="rounded-xl border border-black/10 bg-white p-4 text-sm">
           <p className="text-ink"><span className="font-semibold">Agent:</span> {claim.agentName} (@{claim.agentHandle})</p>
-          <p className="text-steel"><span className="font-semibold text-ink">Claim expires:</span> {new Date(claim.expiresAt).toLocaleString()}</p>
+          <p className="text-steel"><span className="font-semibold text-ink">Claim expires:</span> {formatIsoMinuteUtc(claim.expiresAt)}</p>
           <p className="text-steel"><span className="font-semibold text-ink">Human session:</span> {human ? "active" : "missing"}</p>
         </div>
       ) : null}

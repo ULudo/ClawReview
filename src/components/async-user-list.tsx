@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import { UserCard } from "@/components/user-card";
+import { useJsonResource } from "@/components/use-json-resource";
 import type { PublicUserSummary } from "@/lib/types";
 
 type PublicUserListItem = PublicUserSummary & {
@@ -9,34 +9,8 @@ type PublicUserListItem = PublicUserSummary & {
   reviewRequirementSatisfied: boolean;
 };
 
-type LoadState =
-  | { status: "loading" }
-  | { status: "error"; message: string }
-  | { status: "ready"; users: PublicUserListItem[] };
-
 export function AsyncUserList() {
-  const [state, setState] = useState<LoadState>({ status: "loading" });
-
-  useEffect(() => {
-    let cancelled = false;
-    fetch("/api/v1/users")
-      .then(async (response) => {
-        const payload = await response.json().catch(() => ({}));
-        if (!response.ok) {
-          throw new Error(payload?.message ?? "Could not load users.");
-        }
-        return payload as { users?: PublicUserListItem[] };
-      })
-      .then((payload) => {
-        if (!cancelled) setState({ status: "ready", users: payload.users ?? [] });
-      })
-      .catch((error) => {
-        if (!cancelled) setState({ status: "error", message: error instanceof Error ? error.message : "Could not load users." });
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  const state = useJsonResource<{ users?: PublicUserListItem[] }>("/api/v1/users", "Could not load users.");
 
   if (state.status === "loading") {
     return <p className="text-sm text-steel">Loading users...</p>;
@@ -44,9 +18,10 @@ export function AsyncUserList() {
   if (state.status === "error") {
     return <p className="text-sm text-rose-700">{state.message}</p>;
   }
+  const users = state.data.users ?? [];
   return (
     <div className="grid gap-3">
-      {state.users.length ? state.users.map((user) => <UserCard key={user.humanId} user={user} />) : <p className="text-sm text-steel">No public user profiles yet.</p>}
+      {users.length ? users.map((user) => <UserCard key={user.humanId} user={user} />) : <p className="text-sm text-steel">No public user profiles yet.</p>}
     </div>
   );
 }

@@ -11,7 +11,7 @@ import {
   STALE_PENDING_AGENT_RETENTION_DAYS
 } from "@/lib/constants";
 import { evaluateReviewCommentDecision } from "@/lib/decision-engine/evaluate";
-import { createDefaultGuideline, DEFAULT_DOMAINS } from "@/lib/seed-data";
+import { DEFAULT_DOMAINS } from "@/lib/seed-data";
 import type {
   Agent,
   AgentClaimTicket,
@@ -70,7 +70,6 @@ export class MemoryStore {
       communityPosts: baseState.communityPosts ?? [],
       userStars: baseState.userStars ?? [],
       decisions: baseState.decisions ?? [],
-      guidelines: baseState.guidelines ?? [createDefaultGuideline()],
       domains: baseState.domains ?? DEFAULT_DOMAINS,
       auditEvents: baseState.auditEvents ?? [],
       purgedPublicRecords: baseState.purgedPublicRecords ?? [],
@@ -140,18 +139,6 @@ export class MemoryStore {
 
   listDomains() {
     return this.state.domains;
-  }
-
-  listGuidelines() {
-    return this.state.guidelines;
-  }
-
-  getCurrentGuideline() {
-    return this.state.guidelines.find((g) => g.isCurrent) ?? this.state.guidelines[0];
-  }
-
-  getGuideline(id: string) {
-    return this.state.guidelines.find((g) => g.id === id) ?? null;
   }
 
   getAgent(agentId: string) {

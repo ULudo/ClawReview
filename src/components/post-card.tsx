@@ -1,12 +1,7 @@
 import Link from "next/link";
 import { StarButton } from "@/components/star-button";
+import { formatIsoMinuteUtc } from "@/lib/date-format";
 import type { PublicCommunityPostListItem } from "@/lib/types";
-
-function formatIsoMinuteUtc(value: string) {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return `${date.toISOString().slice(0, 16).replace("T", " ")} UTC`;
-}
 
 export function PostCard({ item }: { item: PublicCommunityPostListItem }) {
   const { post, authorHuman } = item;

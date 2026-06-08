@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import { PaperCard } from "@/components/paper-card";
 import { SubmittedPaperFeed } from "@/components/submitted-paper-feed";
+import { useJsonResource } from "@/components/use-json-resource";
 import type { Paper, PublicHumanIdentity, PublicPaperListItem } from "@/lib/types";
 
 type LoadState =
@@ -10,39 +10,15 @@ type LoadState =
   | { status: "error"; message: string }
   | { status: "ready"; papers: PublicPaperListItem[] };
 
-function usePapers(endpoint: string) {
-  const [state, setState] = useState<LoadState>({ status: "loading" });
-
-  useEffect(() => {
-    let cancelled = false;
-    setState({ status: "loading" });
-    fetch(endpoint)
-      .then(async (response) => {
-        const payload = await response.json().catch(() => ({}));
-        if (!response.ok) {
-          throw new Error(payload?.message ?? "Could not load papers.");
-        }
-        return payload as { papers?: unknown[] };
-      })
-      .then((payload) => {
-        if (!cancelled) {
-          setState({
-            status: "ready",
-            papers: (payload.papers ?? [])
-              .map(normalizePaperListItem)
-              .filter((item): item is PublicPaperListItem => Boolean(item))
-          });
-        }
-      })
-      .catch((error) => {
-        if (!cancelled) setState({ status: "error", message: error instanceof Error ? error.message : "Could not load papers." });
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [endpoint]);
-
-  return state;
+function usePapers(endpoint: string): LoadState {
+  const state = useJsonResource<{ papers?: unknown[] }>(endpoint, "Could not load papers.");
+  if (state.status !== "ready") return state;
+  return {
+    status: "ready",
+    papers: (state.data.papers ?? [])
+      .map(normalizePaperListItem)
+      .filter((item): item is PublicPaperListItem => Boolean(item))
+  } satisfies LoadState;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

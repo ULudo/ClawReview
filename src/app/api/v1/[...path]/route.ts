@@ -1287,29 +1287,8 @@ export async function GET(req: NextRequest) {
       });
     }
 
-    if (segments.length === 1 && segments[0] === "guidelines") {
-      return badRequest("Use /api/v1/guidelines/current or /api/v1/guidelines/{versionId}");
-    }
-
-    if (segments.length === 2 && segments[0] === "guidelines" && segments[1] === "current") {
-      const guideline = store.getCurrentGuideline();
-      return ok({ guideline });
-    }
-
-    if (segments.length === 2 && segments[0] === "guidelines") {
-      const guideline = store.getGuideline(segments[1]);
-      if (!guideline) return notFound("Guideline not found");
-      return ok({ guideline });
-    }
-
     if (segments.length === 1 && segments[0] === "domains") {
       return publicRead({ domains: store.listDomains() });
-    }
-
-    if (segments.length === 3 && segments[0] === "domains" && segments[2] === "guidelines") {
-      const domain = store.listDomains().find((d) => d.id === segments[1]);
-      if (!domain) return notFound("Domain not found");
-      return ok({ domain, guidelines: store.listGuidelines().filter((g) => g.domains.includes("*") || g.domains.includes(domain.id)) });
     }
 
     if (segments.length === 1 && segments[0] === "accepted") {

@@ -4,6 +4,8 @@ import { useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import { SectionCard } from "@/components/section-card";
 import { StarButton } from "@/components/star-button";
+import { fetchJsonResource, useJsonResource, type ResourceState } from "@/components/use-json-resource";
+import { formatIsoMinuteUtc } from "@/lib/date-format";
 import type { DecisionRecord, Paper, PaperVersion, PublicHumanIdentity, PublicReviewComment, PurgedPublicRecord } from "@/lib/types";
 
 const MarkdownRenderer = dynamic(
@@ -61,11 +63,6 @@ type ReviewsPayload = {
   comments: PublicReviewComment[];
 };
 
-type LoadState<T> =
-  | { status: "loading" }
-  | { status: "error"; message: string }
-  | { status: "ready"; data: T };
-
 function renderedMarkdown(version: Pick<PaperVersion, "manuscriptSource" | "contentSections">) {
   return (
     version.manuscriptSource ||
@@ -73,15 +70,6 @@ function renderedMarkdown(version: Pick<PaperVersion, "manuscriptSource" | "cont
       .map(([key, value]) => `## ${key}\n\n${value}`)
       .join("\n\n")
   );
-}
-
-async function fetchJson<T>(url: string) {
-  const response = await fetch(url);
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    throw new Error(typeof payload?.message === "string" ? payload.message : "Could not load paper data.");
-  }
-  return payload as T;
 }
 
 function PaperDetailSkeleton() {
@@ -150,22 +138,10 @@ function PaperMeta({ version }: { version: VersionSummary }) {
 }
 
 function CurrentManuscript({ paperId, versionId }: { paperId: string; versionId: string }) {
-  const [state, setState] = useState<LoadState<VersionPayload>>({ status: "loading" });
-
-  useEffect(() => {
-    let cancelled = false;
-    setState({ status: "loading" });
-    fetchJson<VersionPayload>(`/api/v1/papers/${encodeURIComponent(paperId)}/versions/${encodeURIComponent(versionId)}`)
-      .then((data) => {
-        if (!cancelled) setState({ status: "ready", data });
-      })
-      .catch((error) => {
-        if (!cancelled) setState({ status: "error", message: error instanceof Error ? error.message : "Could not load manuscript." });
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [paperId, versionId]);
+  const state = useJsonResource<VersionPayload>(
+    `/api/v1/papers/${encodeURIComponent(paperId)}/versions/${encodeURIComponent(versionId)}`,
+    "Could not load manuscript."
+  );
 
   if (state.status === "loading") {
     return <p className="text-sm text-steel">Loading manuscript...</p>;
@@ -190,22 +166,7 @@ function CurrentManuscript({ paperId, versionId }: { paperId: string; versionId:
 }
 
 function CurrentReviews({ paperId }: { paperId: string }) {
-  const [state, setState] = useState<LoadState<ReviewsPayload>>({ status: "loading" });
-
-  useEffect(() => {
-    let cancelled = false;
-    setState({ status: "loading" });
-    fetchJson<ReviewsPayload>(`/api/v1/papers/${encodeURIComponent(paperId)}/reviews`)
-      .then((data) => {
-        if (!cancelled) setState({ status: "ready", data });
-      })
-      .catch((error) => {
-        if (!cancelled) setState({ status: "error", message: error instanceof Error ? error.message : "Could not load reviews." });
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [paperId]);
+  const state = useJsonResource<ReviewsPayload>(`/api/v1/papers/${encodeURIComponent(paperId)}/reviews`, "Could not load reviews.");
 
   if (state.status === "loading") {
     return <p className="text-sm text-steel">Loading reviews...</p>;
@@ -218,8 +179,8 @@ function CurrentReviews({ paperId }: { paperId: string }) {
 
 function PreviousVersionRun({ paperId, run }: { paperId: string; run: VersionRunSummary }) {
   const [opened, setOpened] = useState(false);
-  const [versionState, setVersionState] = useState<LoadState<VersionPayload> | null>(null);
-  const [reviewState, setReviewState] = useState<LoadState<ReviewsPayload> | null>(null);
+  const [versionState, setVersionState] = useState<ResourceState<VersionPayload> | null>(null);
+  const [reviewState, setReviewState] = useState<ResourceState<ReviewsPayload> | null>(null);
   const status = run.decision?.status ?? "under_review";
 
   useEffect(() => {
@@ -227,14 +188,14 @@ function PreviousVersionRun({ paperId, run }: { paperId: string; run: VersionRun
     let cancelled = false;
     setVersionState({ status: "loading" });
     setReviewState({ status: "loading" });
-    fetchJson<VersionPayload>(`/api/v1/papers/${encodeURIComponent(paperId)}/versions/${encodeURIComponent(run.version.id)}`)
+    fetchJsonResource<VersionPayload>(`/api/v1/papers/${encodeURIComponent(paperId)}/versions/${encodeURIComponent(run.version.id)}`, "Could not load version.")
       .then((data) => {
         if (!cancelled) setVersionState({ status: "ready", data });
       })
       .catch((error) => {
         if (!cancelled) setVersionState({ status: "error", message: error instanceof Error ? error.message : "Could not load version." });
       });
-    fetchJson<ReviewsPayload>(`/api/v1/papers/${encodeURIComponent(paperId)}/versions/${encodeURIComponent(run.version.id)}/reviews`)
+    fetchJsonResource<ReviewsPayload>(`/api/v1/papers/${encodeURIComponent(paperId)}/versions/${encodeURIComponent(run.version.id)}/reviews`, "Could not load reviews.")
       .then((data) => {
         if (!cancelled) setReviewState({ status: "ready", data });
       })
@@ -312,7 +273,7 @@ function PaperDetail({ data }: { data: PaperSummary }) {
           <span className="rounded-full border border-black/10 bg-sand px-2 py-1">{paper.latestStatus}</span>
           <span className="rounded-full border border-black/10 bg-sand px-2 py-1">v{currentVersion.versionNumber}</span>
           <span className="rounded-full border border-black/10 bg-sand px-2 py-1">format: {currentVersion.manuscriptFormat ?? "markdown"}</span>
-          <span className="rounded-full border border-black/10 bg-sand px-2 py-1">updated: {new Date(paper.updatedAt).toLocaleString()}</span>
+          <span className="rounded-full border border-black/10 bg-sand px-2 py-1">updated: {formatIsoMinuteUtc(paper.updatedAt)}</span>
         </div>
 
         <div className="mt-4 grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
@@ -352,22 +313,7 @@ function PaperDetail({ data }: { data: PaperSummary }) {
 }
 
 export function AsyncPaperDetail({ paperId }: { paperId: string }) {
-  const [state, setState] = useState<LoadState<PaperSummary>>({ status: "loading" });
-
-  useEffect(() => {
-    let cancelled = false;
-    setState({ status: "loading" });
-    fetchJson<PaperSummary>(`/api/v1/papers/${encodeURIComponent(paperId)}?summary=true`)
-      .then((data) => {
-        if (!cancelled) setState({ status: "ready", data });
-      })
-      .catch((error) => {
-        if (!cancelled) setState({ status: "error", message: error instanceof Error ? error.message : "Could not load paper." });
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [paperId]);
+  const state = useJsonResource<PaperSummary>(`/api/v1/papers/${encodeURIComponent(paperId)}?summary=true`, "Could not load paper.");
 
   if (state.status === "loading") {
     return <PaperDetailSkeleton />;

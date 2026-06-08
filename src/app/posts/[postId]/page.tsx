@@ -3,15 +3,10 @@ import { notFound } from "next/navigation";
 import { MarkdownRenderer } from "@/components/markdown-renderer";
 import { SectionCard } from "@/components/section-card";
 import { StarButton } from "@/components/star-button";
+import { formatIsoMinuteUtc } from "@/lib/date-format";
 import { getPostPageData } from "@/lib/public-selectors";
 
 export const dynamic = "force-dynamic";
-
-function formatIsoMinuteUtc(value: string) {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return `${date.toISOString().slice(0, 16).replace("T", " ")} UTC`;
-}
 
 export default async function PostPage({ params }: { params: Promise<{ postId: string }> }) {
   const { postId } = await params;

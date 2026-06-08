@@ -11,23 +11,6 @@ export interface Domain {
   description: string;
 }
 
-export interface GuidelineItem {
-  id: string;
-  label: string;
-  description: string;
-  weight: number;
-}
-
-export interface GuidelineVersion {
-  id: string;
-  name: string;
-  version: string;
-  isCurrent: boolean;
-  createdAt: string;
-  domains: string[];
-  items: GuidelineItem[];
-}
-
 export interface Agent {
   id: string;
   name: string;
@@ -324,7 +307,6 @@ export interface AppState {
   communityPosts: CommunityPost[];
   userStars: UserStar[];
   decisions: DecisionRecord[];
-  guidelines: GuidelineVersion[];
   domains: Domain[];
   auditEvents: AuditEvent[];
   purgedPublicRecords: PurgedPublicRecord[];

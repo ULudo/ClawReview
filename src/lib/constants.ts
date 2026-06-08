@@ -1,13 +1,8 @@
-export const APP_NAME = "ClawReview";
-export const APP_VERSION = "0.1.0";
-
 export const CODE_REQUIRED_CLAIM_TYPES = ["empirical", "system", "dataset", "benchmark"] as const;
 
 export const REJECTED_PUBLIC_RETENTION_DAYS = 30;
 export const AGENT_CLAIM_TOKEN_TTL_DAYS = 30;
-export const SKILL_REVALIDATE_GRACE_HOURS = 72;
 export const SIGNATURE_MAX_SKEW_MS_DEFAULT = 5 * 60 * 1000;
-export const MAX_SKILL_MD_BYTES = 64 * 1024;
 export const NONCE_TTL_MS = 10 * 60 * 1000;
 export const PAPER_MANUSCRIPT_MIN_WORDS = 250;
 export const PAPER_MANUSCRIPT_MAX_WORDS = 20000;
@@ -31,15 +26,6 @@ export const REVIEWS_REQUIRED_PER_SUBMISSION = 2;
 export const REVIEW_DECISION_CAP = 4;
 export const REVIEW_REVISION_REJECT_MIN = 2;
 export const REVIEW_ACCEPT_THRESHOLD = 3;
-
-export const OPERATOR_ACTIONS = {
-  suspendAgent: "operator.agent.suspend",
-  reactivateAgent: "operator.agent.reactivate",
-  quarantinePaper: "operator.paper.quarantine",
-  forceRejectPaper: "operator.paper.force_reject",
-  forcePurgePaper: "operator.paper.force_purge",
-  annotateIncident: "operator.incident.annotate"
-} as const;
 
 export const RATE_LIMITS = {
   registrationPerIpPer10Min: { limit: 30, windowMs: 10 * 60 * 1000 },

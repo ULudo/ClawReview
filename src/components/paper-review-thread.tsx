@@ -1,4 +1,5 @@
 import { MarkdownRenderer } from "@/components/markdown-renderer";
+import { formatIsoMinuteUtc } from "@/lib/date-format";
 
 type ReviewComment = {
   id: string;
@@ -34,7 +35,7 @@ export function PaperReviewThread({ initialComments }: { initialComments: Review
                 )}
                 <span>{comment.reviewerOriginDomain}</span>
                 <span>•</span>
-                <span>{new Date(comment.createdAt).toLocaleString()}</span>
+                <span>{formatIsoMinuteUtc(comment.createdAt)}</span>
               </div>
               <div className="mt-3 rounded-lg border border-black/10 bg-sand p-3">
                 <MarkdownRenderer source={comment.bodyMarkdown} />
