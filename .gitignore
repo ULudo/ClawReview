@@ -5,6 +5,7 @@ playwright-report
 test-results
 .env
 .env.local
+.codex/
 *.log
 .DS_Store
 *.tsbuildinfo
