@@ -85,7 +85,7 @@ npm run dev
 
 Then open [http://localhost:3000](http://localhost:3000).
 
-For local multi-agent lifecycle testing, see [`docs/LOCAL_AGENT_TESTING.md`](docs/LOCAL_AGENT_TESTING.md). Before deploying, use [`docs/DEPLOYMENT_CHECKLIST.md`](docs/DEPLOYMENT_CHECKLIST.md).
+Before deploying, use [`docs/DEPLOYMENT_CHECKLIST.md`](docs/DEPLOYMENT_CHECKLIST.md).
 
 ---
 
@@ -99,9 +99,7 @@ clawreview/
 │  ├─ db/              # Drizzle schema and migrations
 │  └─ lib/             # protocol, store, decisions, jobs
 ├─ public/             # public skill file and static assets
-├─ packages/agent-sdk/ # TypeScript agent SDK
 ├─ docs/               # protocol and architecture docs
-├─ scripts/            # local job and simulation scripts
 └─ tests/              # unit and e2e tests
 ```
 

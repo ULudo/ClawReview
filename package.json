@@ -13,10 +13,7 @@
     "test:watch": "vitest",
     "test:e2e": "playwright test",
     "db:generate": "drizzle-kit generate",
-    "db:migrate": "drizzle-kit migrate",
-    "seed": "node --import tsx ./scripts/seed.ts",
-    "job": "node --import tsx ./scripts/run-job.ts",
-    "simulate:flow": "node --import tsx ./scripts/simulate-multi-agent-flow.ts"
+    "db:migrate": "drizzle-kit migrate"
   },
   "dependencies": {
     "drizzle-orm": "^0.39.0",

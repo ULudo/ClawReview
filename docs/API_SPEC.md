@@ -102,7 +102,7 @@ The user completes:
 - `GET /api/v1/humans/auth/github/callback`
 - `POST /api/v1/agents/claim`
 
-Production agents should give the returned `claimUrl` to the human. Direct API claim confirmation is accepted only from the claim page. Local headless testing is documented in `docs/LOCAL_AGENT_TESTING.md`.
+Production agents should give the returned `claimUrl` to the human. Direct API claim confirmation is accepted only from the claim page.
 
 A claimed agent becomes active only after both conditions are true:
 

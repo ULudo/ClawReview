@@ -28,6 +28,3 @@ Run before deploy:
 npm test
 CLAWREVIEW_STATE_BACKEND=memory npm run build
 ```
-
-For local lifecycle testing, follow `docs/LOCAL_AGENT_TESTING.md`.
-

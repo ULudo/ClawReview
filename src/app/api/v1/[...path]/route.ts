@@ -61,7 +61,7 @@ import {
 import { getRuntimeStore, persistRuntimeStore } from "@/lib/store/runtime";
 import { parseHostname, randomId, sha256Hex } from "@/lib/utils";
 import { assertEd25519PublicKeyFormat, parseSignedHeaders, verifyEd25519Signature, verifySignedRequest } from "@/lib/protocol/signatures";
-import type { Agent, Paper } from "@/lib/types";
+import type { Agent, Paper, PaperVersion } from "@/lib/types";
 import type { ZodError } from "zod";
 
 export const dynamic = "force-dynamic";
@@ -874,7 +874,46 @@ function buildPaperValidationReport(params: {
   };
 }
 
-async function publicPaperView(paperId: string) {
+function publicPaperVersionSummary(version: PaperVersion) {
+  return {
+    id: version.id,
+    paperId: version.paperId,
+    versionNumber: version.versionNumber,
+    title: version.title,
+    abstract: version.abstract,
+    domains: version.domains,
+    keywords: version.keywords,
+    claimTypes: version.claimTypes,
+    language: version.language,
+    references: version.references,
+    sourceRepoUrl: version.sourceRepoUrl,
+    sourceRef: version.sourceRef,
+    manuscriptFormat: version.manuscriptFormat ?? "markdown",
+    attachmentAssetIds: version.attachmentAssetIds,
+    reviewCap: version.reviewCap,
+    createdAt: version.createdAt,
+    createdByAgentId: version.createdByAgentId,
+    createdByHumanId: version.createdByHumanId,
+    submissionReviewRequirement: version.submissionReviewRequirement,
+    submissionReviewRequirementBypassed: version.submissionReviewRequirementBypassed
+  };
+}
+
+function publicPaperVersionRunSummary(
+  store: Awaited<ReturnType<typeof getRuntimeStore>>,
+  version: PaperVersion
+) {
+  const versionDecisions = store.listDecisionsForPaperVersion(version.id);
+  const latestDecision = [...versionDecisions].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0] ?? null;
+  return {
+    version: publicPaperVersionSummary(version),
+    commentCount: store.listPaperReviewCommentsForVersion(version.id).length,
+    reviewCap: version.reviewCap,
+    decision: latestDecision
+  };
+}
+
+async function publicPaperView(paperId: string, options?: { summary?: boolean }) {
   const store = await getRuntimeStore();
   const paper = store.getPaper(paperId);
   if (!paper) return null;
@@ -904,6 +943,17 @@ async function publicPaperView(paperId: string) {
       reviewComments: [],
       decisions,
       purgedPublicRecord: store.snapshotState().purgedPublicRecords.find((r) => r.paperId === paper.id) ?? null
+    };
+  }
+
+  if (options?.summary) {
+    return {
+      paper,
+      publisher_human: publisherHuman,
+      versions: versions.map((version) => publicPaperVersionSummary(version)),
+      versionRuns: versions.map((version) => publicPaperVersionRunSummary(store, version)),
+      currentVersion: currentVersion ? publicPaperVersionSummary(currentVersion) : null,
+      decisions
     };
   }
 
@@ -1189,9 +1239,9 @@ export async function GET(req: NextRequest) {
     }
 
     if (segments.length === 2 && segments[0] === "papers") {
-      const view = await publicPaperView(segments[1]);
+      const view = await publicPaperView(segments[1], { summary: req.nextUrl.searchParams.get("summary") === "true" });
       if (!view) return notFound("Paper not found");
-      return ok(view);
+      return publicRead(view);
     }
 
     if (segments.length === 3 && segments[0] === "papers" && segments[2] === "reviews") {
@@ -1203,7 +1253,12 @@ export async function GET(req: NextRequest) {
     }
 
     if (segments.length === 5 && segments[0] === "papers" && segments[2] === "versions" && segments[4] === "reviews") {
-      return notFound("Route not found");
+      const paper = store.getPaper(segments[1]);
+      if (!paper) return notFound("Paper not found");
+      const version = store.getPaperVersion(segments[3]);
+      if (!version || version.paperId !== paper.id) return notFound("Paper version not found");
+      if (paper.publicPurgedAt) return publicRead({ comments: [] });
+      return publicRead({ comments: store.listPaperReviewCommentsForVersion(version.id).map((comment) => getPublicReviewComment(store, comment)) });
     }
 
     if (segments.length === 4 && segments[0] === "papers" && segments[2] === "versions") {
@@ -1226,7 +1281,7 @@ export async function GET(req: NextRequest) {
           }
         });
       }
-      return ok({
+      return publicRead({
         version,
         decisions: store.listDecisionsForPaperVersion(version.id)
       });
