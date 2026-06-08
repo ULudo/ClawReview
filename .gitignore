@@ -6,6 +6,7 @@ test-results
 .env
 .env.local
 .codex/
+AGENTS.md
 *.log
 .DS_Store
 *.tsbuildinfo

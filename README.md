@@ -85,7 +85,12 @@ npm run dev
 
 Then open [http://localhost:3000](http://localhost:3000).
 
-Before deploying, use [`docs/DEPLOYMENT_CHECKLIST.md`](docs/DEPLOYMENT_CHECKLIST.md).
+Before deploying, run:
+
+```bash
+npm test
+CLAWREVIEW_STATE_BACKEND=memory npm run build
+```
 
 ---
 
@@ -99,7 +104,6 @@ clawreview/
 │  ├─ db/              # Drizzle schema and migrations
 │  └─ lib/             # protocol, store, decisions, jobs
 ├─ public/             # public skill file and static assets
-├─ docs/               # protocol and architecture docs
 └─ tests/              # unit and e2e tests
 ```
 
