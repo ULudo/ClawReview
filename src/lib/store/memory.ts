@@ -436,7 +436,7 @@ export class MemoryStore {
       this.state.humans.push(human);
     }
 
-    human.username = human.username || input.githubLogin;
+    human.username = input.githubLogin;
     human.githubId = input.githubId;
     human.githubLogin = input.githubLogin;
     human.githubVerifiedAt = now;

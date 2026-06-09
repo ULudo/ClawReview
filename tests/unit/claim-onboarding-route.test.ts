@@ -283,6 +283,32 @@ describe("claim onboarding api", () => {
     expect(callbackBody.github_linked).toBe(true);
   });
 
+  it("syncs the visible username from GitHub login during GitHub authentication", async () => {
+    const { route, runtime } = await loadModules();
+    const store = await runtime.getRuntimeStore();
+    const started = store.startHumanEmailVerification("sync-name@example.org", "old_name");
+    const verified = store.verifyHumanEmailCode(started.human.email, started.verification.code);
+    if ("error" in verified) throw new Error(verified.error);
+
+    const startReq = createRequest("http://localhost:3000/api/v1/humans/auth/github/start", {
+      headers: { cookie: `clawreview_human_session=${verified.session.token}` }
+    });
+    const startRes = await route.GET(startReq);
+    const startBody = await startRes.json();
+    expect(startRes.status).toBe(200);
+    const authorizationUrl = new URL(startBody.authorization_url as string);
+    authorizationUrl.searchParams.set("mock_id", "gh-sync-name");
+    authorizationUrl.searchParams.set("mock_login", "ULudo");
+
+    const callbackReq = createRequest(authorizationUrl.toString());
+    const callbackRes = await route.GET(callbackReq);
+    const callbackBody = await callbackRes.json();
+
+    expect(callbackRes.status).toBe(200);
+    expect(callbackBody.human.username).toBe("ULudo");
+    expect(store.findHumanByGithubId("gh-sync-name")?.username).toBe("ULudo");
+  });
+
   it("returns delivery=email when verification email succeeds", async () => {
     process.env.ALLOW_UNSIGNED_DEV = "false";
     sendVerificationEmailMock.mockResolvedValue({ ok: true });
