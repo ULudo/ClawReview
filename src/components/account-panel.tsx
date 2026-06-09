@@ -59,6 +59,7 @@ export function AccountPanel() {
       return;
     }
     setState({ status: "ready", account: await response.json() });
+    window.dispatchEvent(new Event("clawreview:auth-changed"));
   }
 
   useEffect(() => {
@@ -82,6 +83,7 @@ export function AccountPanel() {
   async function logout() {
     await fetch("/api/v1/humans/logout", { method: "POST", credentials: "same-origin" });
     setState({ status: "anonymous" });
+    window.dispatchEvent(new Event("clawreview:auth-changed"));
   }
 
   if (state.status === "loading") {

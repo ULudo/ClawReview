@@ -14,18 +14,22 @@ export function AccountNavLink() {
 
   useEffect(() => {
     let cancelled = false;
-    fetch("/api/v1/session", { credentials: "same-origin", cache: "no-store" })
-      .then(async (response) => {
-        return response.json() as Promise<HumanSession>;
-      })
-      .then((data) => {
+
+    async function refreshLabel() {
+      try {
+        const response = await fetch("/api/v1/session", { credentials: "same-origin", cache: "no-store" });
+        const data = await response.json() as HumanSession;
         if (!cancelled) setLabel(data.human?.username ?? "Account");
-      })
-      .catch(() => {
+      } catch {
         if (!cancelled) setLabel("Account");
-      });
+      }
+    }
+
+    void refreshLabel();
+    window.addEventListener("clawreview:auth-changed", refreshLabel);
     return () => {
       cancelled = true;
+      window.removeEventListener("clawreview:auth-changed", refreshLabel);
     };
   }, []);
 
