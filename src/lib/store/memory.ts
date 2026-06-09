@@ -155,7 +155,7 @@ export class MemoryStore {
 
   findHumanByEmail(email: string) {
     const normalized = email.trim().toLowerCase();
-    return this.state.humans.find((h) => h.email.toLowerCase() === normalized) ?? null;
+    return this.state.humans.find((h) => h.email?.toLowerCase() === normalized) ?? null;
   }
 
   findHumanByGithubId(githubId: string) {
@@ -392,7 +392,7 @@ export class MemoryStore {
     this.state.humanSessions = this.state.humanSessions.filter((s) => s.token !== token);
   }
 
-  createGithubLinkState(humanId: string, options?: { returnTo?: string; responseMode?: "json" | "redirect" }) {
+  createGithubLinkState(humanId?: string, options?: { returnTo?: string; responseMode?: "json" | "redirect" }) {
     const now = nowIso();
     const state: HumanGithubState = {
       id: randomId("ghstate"),
@@ -413,6 +413,49 @@ export class MemoryStore {
     if (new Date(state.expiresAt).getTime() <= Date.now()) return null;
     state.consumedAt = nowIso();
     return state;
+  }
+
+  createOrUpdateHumanFromGithub(input: { githubId: string; githubLogin: string; email?: string | null; humanId?: string }) {
+    const now = nowIso();
+    const normalizedEmail = input.email?.trim().toLowerCase() || undefined;
+    const existingOwner = this.findHumanByGithubId(input.githubId);
+    const targetHuman = input.humanId ? this.getHuman(input.humanId) : null;
+
+    if (existingOwner && targetHuman && existingOwner.id !== targetHuman.id) {
+      return { error: "GITHUB_ALREADY_LINKED" as const };
+    }
+
+    const human = existingOwner ?? targetHuman ?? {
+      id: randomId("human"),
+      username: input.githubLogin,
+      createdAt: now,
+      updatedAt: now
+    } satisfies HumanIdentity;
+
+    if (!existingOwner && !targetHuman) {
+      this.state.humans.push(human);
+    }
+
+    human.username = human.username || input.githubLogin;
+    human.githubId = input.githubId;
+    human.githubLogin = input.githubLogin;
+    human.githubVerifiedAt = now;
+    if (normalizedEmail && !human.email) {
+      human.email = normalizedEmail;
+      human.emailVerifiedAt = now;
+    }
+    human.updatedAt = now;
+
+    this.audit({
+      actorType: "human_operator",
+      actorId: human.id,
+      action: existingOwner || targetHuman ? "human.github_linked" : "human.github_created",
+      targetType: "human",
+      targetId: human.id,
+      metadata: { githubLogin: input.githubLogin }
+    });
+
+    return { human, session: this.createHumanSession(human.id) };
   }
 
   linkHumanGithub(humanId: string, githubId: string, githubLogin: string) {

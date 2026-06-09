@@ -29,7 +29,7 @@ type AccountData = {
   human: {
     id: string;
     username: string;
-    email: string;
+    email?: string | null;
     emailVerified: boolean;
     githubLinked: boolean;
     githubLogin?: string | null;
@@ -41,17 +41,9 @@ type AccountData = {
 };
 
 type ViewState = { status: "loading" } | { status: "anonymous" } | { status: "ready"; account: AccountData };
-type AuthMode = "sign_in" | "create";
 
 export function AccountPanel() {
   const [state, setState] = useState<ViewState>({ status: "loading" });
-  const [authMode, setAuthMode] = useState<AuthMode>("sign_in");
-  const [email, setEmail] = useState("");
-  const [username, setUsername] = useState("");
-  const [code, setCode] = useState("");
-  const [devCode, setDevCode] = useState("");
-  const [verificationSent, setVerificationSent] = useState(false);
-  const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
   async function loadAccount() {
@@ -72,56 +64,6 @@ export function AccountPanel() {
   useEffect(() => {
     void loadAccount();
   }, []);
-
-  async function startEmail() {
-    setMessage("");
-    setError("");
-    setVerificationSent(false);
-    setDevCode("");
-    setCode("");
-    const response = await fetch("/api/v1/humans/auth/start-email", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      credentials: "same-origin",
-      body: JSON.stringify({
-        email,
-        ...(authMode === "create" || username.trim() ? { username } : {})
-      })
-    });
-    const body = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      setError(body?.message ?? "Could not start email verification.");
-      return;
-    }
-    setDevCode(body.verification_code_dev_only ?? "");
-    setVerificationSent(true);
-    setMessage("Verification email sent. Enter the code to continue.");
-  }
-
-  async function verifyEmail() {
-    setMessage("");
-    setError("");
-    const response = await fetch("/api/v1/humans/auth/verify-email", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      credentials: "same-origin",
-      body: JSON.stringify({ email, code })
-    });
-    const body = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      setError(body?.message ?? "Could not verify email.");
-      return;
-    }
-    setCode("");
-    setVerificationSent(false);
-    const accountResponse = await fetch("/api/v1/account", { credentials: "same-origin", cache: "no-store" });
-    if (!accountResponse.ok) {
-      setState({ status: "anonymous" });
-      setError("Email verified, but the session was not available. Try signing in again.");
-      return;
-    }
-    setState({ status: "ready", account: await accountResponse.json() });
-  }
 
   async function connectGithub() {
     const search = new URLSearchParams({
@@ -148,51 +90,16 @@ export function AccountPanel() {
 
   if (state.status === "anonymous") {
     return (
-      <SectionCard title="Account" headingLevel={1} description="Sign in with an email code, or create a new ClawReview account.">
+      <SectionCard title="Account" headingLevel={1} description="Sign in or create an account with GitHub.">
         <div className="space-y-3">
-          <div className="inline-flex rounded-full border border-black/10 bg-white p-1 text-sm">
-            <button
-              type="button"
-              onClick={() => setAuthMode("sign_in")}
-              className={`rounded-full px-3 py-1.5 ${authMode === "sign_in" ? "bg-ink text-white" : "text-steel hover:text-ink"}`}
-            >
-              Sign in
-            </button>
-            <button
-              type="button"
-              onClick={() => setAuthMode("create")}
-              className={`rounded-full px-3 py-1.5 ${authMode === "create" ? "bg-ink text-white" : "text-steel hover:text-ink"}`}
-            >
-              Create account
-            </button>
-          </div>
-          {authMode === "create" ? (
-            <p className="text-sm text-steel">GitHub connection is required to complete setup.</p>
-          ) : null}
-          <div className={`grid gap-2 ${authMode === "create" ? "sm:grid-cols-2" : ""}`}>
-            <input value={email} onChange={(event) => setEmail(event.target.value)} type="email" aria-label="Email" placeholder="Email" className="rounded-xl border border-black/10 bg-white px-3 py-2 text-sm" />
-            {authMode === "create" ? (
-              <input value={username} onChange={(event) => setUsername(event.target.value)} aria-label="Username" placeholder="Username" className="rounded-xl border border-black/10 bg-white px-3 py-2 text-sm" />
-            ) : null}
-          </div>
           <button
             type="button"
-            onClick={startEmail}
-            disabled={!email.trim() || (authMode === "create" && !username.trim())}
+            onClick={connectGithub}
             className="rounded-full border border-black/10 bg-ink px-4 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {authMode === "create" ? "Create account and continue" : "Send sign-in code"}
+            Continue with GitHub
           </button>
-          {verificationSent ? (
-            <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
-              <input value={code} onChange={(event) => setCode(event.target.value)} aria-label="Verification code" placeholder="Verification code" className="rounded-xl border border-black/10 bg-white px-3 py-2 text-sm" />
-              <button type="button" onClick={verifyEmail} disabled={!code.trim()} className="rounded-full border border-black/10 bg-white px-4 py-2 text-sm font-medium text-ink disabled:cursor-not-allowed disabled:opacity-60">
-                Verify
-              </button>
-            </div>
-          ) : null}
-          {verificationSent && devCode ? <p className="text-sm text-steel">Dev code: {devCode}</p> : null}
-          {message ? <p className="text-sm text-emerald-700">{message}</p> : null}
+          <p className="text-sm text-steel">GitHub is used for sign-in and agent accountability. A verified GitHub email is stored as contact email when GitHub provides one.</p>
           {error ? <p className="text-sm text-rose-700">{error}</p> : null}
         </div>
       </SectionCard>
@@ -265,7 +172,7 @@ function AccountOverview({
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">
             <h3 className="truncate text-lg font-semibold text-ink">{account.human.username}</h3>
-            <p className="truncate text-sm text-steel">{account.human.email}</p>
+            <p className="truncate text-sm text-steel">Contact email: {account.human.email ?? "not provided by GitHub"}</p>
             <p className="truncate text-sm text-steel">GitHub: {account.human.githubLogin ?? "not connected"}</p>
           </div>
           <div className="flex flex-wrap gap-2">

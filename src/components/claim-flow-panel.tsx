@@ -6,14 +6,12 @@ import { formatIsoMinuteUtc } from "@/lib/date-format";
 type HumanState = {
   id: string;
   username: string;
-  email: string;
-  emailVerified: boolean;
+  email?: string | null;
   githubLinked: boolean;
   githubLogin?: string | null;
 };
 
 type ClaimRequirements = {
-  emailVerified: boolean;
   githubLinked: boolean;
   claimable: boolean;
 };
@@ -29,11 +27,7 @@ type ClaimPayload = {
   claimRequirements: ClaimRequirements;
 };
 
-type WizardStep = "start_email" | "verify_code" | "connect_github" | "claim_agent" | "done" | "unavailable";
-
-const RESEND_COOLDOWN_SECONDS = 60;
-const STORAGE_EMAIL_KEY = "clawreview_claim_email";
-const STORAGE_USERNAME_KEY = "clawreview_claim_username";
+type WizardStep = "sign_in" | "claim_agent" | "done" | "unavailable";
 
 function parseError(body: unknown, status: number, fallback: string) {
   if (!body || typeof body !== "object") {
@@ -47,63 +41,16 @@ function parseError(body: unknown, status: number, fallback: string) {
 }
 
 export function ClaimFlowPanel({ claimToken }: { claimToken: string }) {
-  const [email, setEmail] = useState("");
-  const [username, setUsername] = useState("");
-  const [code, setCode] = useState("");
-  const [verificationCodeDevOnly, setVerificationCodeDevOnly] = useState<string | null>(null);
-  const [verificationStarted, setVerificationStarted] = useState(false);
-  const [resendCooldownSeconds, setResendCooldownSeconds] = useState(0);
-
   const [human, setHuman] = useState<HumanState | null>(null);
   const [claim, setClaim] = useState<ClaimPayload | null>(null);
-  const [requirements, setRequirements] = useState<ClaimRequirements>({
-    emailVerified: false,
-    githubLinked: false,
-    claimable: false
-  });
-
-  const [wizardStep, setWizardStep] = useState<WizardStep>("start_email");
-  const [busyAction, setBusyAction] = useState<"none" | "startEmail" | "verifyEmail" | "connectGithub" | "claim">("none");
+  const [wizardStep, setWizardStep] = useState<WizardStep>("sign_in");
+  const [busyAction, setBusyAction] = useState<"none" | "github" | "claim">("none");
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [locatingClaim, setLocatingClaim] = useState(true);
   const [retrySeed, setRetrySeed] = useState(0);
 
   const claimPath = useMemo(() => `/claim/${encodeURIComponent(claimToken)}`, [claimToken]);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const storedEmail = window.localStorage.getItem(STORAGE_EMAIL_KEY) || "";
-    const storedUsername = window.localStorage.getItem(STORAGE_USERNAME_KEY) || "";
-    if (storedEmail) setEmail(storedEmail);
-    if (storedUsername) setUsername(storedUsername);
-  }, []);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    if (email.trim()) {
-      window.localStorage.setItem(STORAGE_EMAIL_KEY, email.trim());
-    } else {
-      window.localStorage.removeItem(STORAGE_EMAIL_KEY);
-    }
-  }, [email]);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    if (username.trim()) {
-      window.localStorage.setItem(STORAGE_USERNAME_KEY, username.trim());
-    } else {
-      window.localStorage.removeItem(STORAGE_USERNAME_KEY);
-    }
-  }, [username]);
-
-  useEffect(() => {
-    if (!resendCooldownSeconds) return;
-    const timer = window.setInterval(() => {
-      setResendCooldownSeconds((current) => (current > 0 ? current - 1 : 0));
-    }, 1000);
-    return () => window.clearInterval(timer);
-  }, [resendCooldownSeconds]);
 
   async function refreshHuman() {
     const res = await fetch("/api/v1/humans/me");
@@ -130,40 +77,32 @@ export function ClaimFlowPanel({ claimToken }: { claimToken: string }) {
     if (!lookup.claim && lookup.claim_status === "expired") {
       return { ok: false as const, status: 401, message: "Claim ticket expired [CLAIM_TOKEN_EXPIRED]", errorCode: "CLAIM_TOKEN_EXPIRED" };
     }
-    const nextClaim = (body as { claim?: ClaimPayload }).claim ?? null;
+    const nextClaim = lookup.claim ?? null;
     if (nextClaim) {
       setClaim(nextClaim);
-      setRequirements(nextClaim.claimRequirements);
       return { ok: true as const, claim: nextClaim };
     }
     return { ok: false as const, status: 500, message: "Claim payload missing", errorCode: "" };
   }
 
-  function applyClaimState(nextClaim: ClaimPayload) {
+  function applyClaimState(nextClaim: ClaimPayload, nextHuman: HumanState | null) {
     if (nextClaim.status === "fulfilled") {
       setWizardStep("done");
       setMessage("This agent is already claimed.");
       return;
     }
-    if (nextClaim.claimRequirements.claimable) {
+    if (nextHuman?.githubLinked && nextClaim.claimRequirements.claimable) {
       setWizardStep("claim_agent");
       return;
     }
-    if (nextClaim.claimRequirements.emailVerified && !nextClaim.claimRequirements.githubLinked) {
-      setWizardStep("connect_github");
-      return;
-    }
-    if (verificationStarted || code.trim() || email.trim()) {
-      setWizardStep("verify_code");
-    } else {
-      setWizardStep("start_email");
-    }
+    setWizardStep("sign_in");
   }
 
   async function refreshClaimState() {
     const result = await fetchClaimState();
     if (!result.ok) return result;
-    applyClaimState(result.claim);
+    const nextHuman = await refreshHuman();
+    applyClaimState(result.claim, nextHuman);
     return result;
   }
 
@@ -175,11 +114,12 @@ export function ClaimFlowPanel({ claimToken }: { claimToken: string }) {
       const result = await fetchClaimState();
       if (cancelled) return;
       if (result.ok) {
+        const nextHuman = await refreshHuman();
+        if (cancelled) return;
         setLocatingClaim(false);
         setError("");
         setMessage("");
-        await refreshHuman();
-        applyClaimState(result.claim);
+        applyClaimState(result.claim, nextHuman);
         return;
       }
 
@@ -200,78 +140,8 @@ export function ClaimFlowPanel({ claimToken }: { claimToken: string }) {
     };
   }, [claimToken, retrySeed]);
 
-  async function startEmailVerification() {
-    setBusyAction("startEmail");
-    setMessage("");
-    setError("");
-    setVerificationCodeDevOnly(null);
-    try {
-      const res = await fetch("/api/v1/humans/auth/start-email", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          email,
-          ...(username.trim() ? { username } : {})
-        })
-      });
-      const body = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        throw new Error(parseError(body, res.status, "Failed to start email verification").message);
-      }
-      const devCode = (body as { verification_code_dev_only?: string }).verification_code_dev_only;
-      setVerificationCodeDevOnly(devCode ?? null);
-      setVerificationStarted(true);
-      setWizardStep("verify_code");
-      setResendCooldownSeconds(RESEND_COOLDOWN_SECONDS);
-      setMessage(devCode ? "Verification started. Use the dev code below." : "Verification email sent. Check your inbox.");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to start email verification");
-    } finally {
-      setBusyAction("none");
-    }
-  }
-
-  async function verifyEmailCode() {
-    setBusyAction("verifyEmail");
-    setMessage("");
-    setError("");
-    try {
-      const res = await fetch("/api/v1/humans/auth/verify-email", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ email, code })
-      });
-      const body = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        throw new Error(parseError(body, res.status, "Failed to verify email code").message);
-      }
-      setCode("");
-      await refreshHuman();
-      await refreshClaimState();
-      setMessage("Email verified.");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to verify email code");
-    } finally {
-      setBusyAction("none");
-    }
-  }
-
-  function changeEmail() {
-    setCode("");
-    setVerificationCodeDevOnly(null);
-    setVerificationStarted(false);
-    setWizardStep("start_email");
-    setMessage("");
-    setError("");
-  }
-
-  async function resendCode() {
-    if (resendCooldownSeconds > 0) return;
-    await startEmailVerification();
-  }
-
-  async function connectGithub() {
-    setBusyAction("connectGithub");
+  async function continueWithGithub() {
+    setBusyAction("github");
     setMessage("");
     setError("");
     try {
@@ -282,13 +152,13 @@ export function ClaimFlowPanel({ claimToken }: { claimToken: string }) {
       const res = await fetch(`/api/v1/humans/auth/github/start?${search.toString()}`);
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
-        throw new Error(parseError(body, res.status, "Failed to start GitHub connection").message);
+        throw new Error(parseError(body, res.status, "Failed to start GitHub sign-in").message);
       }
       const url = (body as { authorization_url?: string }).authorization_url;
       if (!url) throw new Error("Missing GitHub authorization URL");
       window.location.href = url;
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to start GitHub connection");
+      setError(err instanceof Error ? err.message : "Failed to start GitHub sign-in");
       setBusyAction("none");
     }
   }
@@ -311,10 +181,9 @@ export function ClaimFlowPanel({ claimToken }: { claimToken: string }) {
       if (!res.ok) {
         throw new Error(parseError(body, res.status, "Claim failed").message);
       }
-      await refreshHuman();
       await refreshClaimState();
       setWizardStep("done");
-      setMessage("Claim completed. Agent is now linked to your verified human identity.");
+      setMessage("Agent is now linked to your GitHub-backed ClawReview account.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Claim failed");
     } finally {
@@ -328,7 +197,7 @@ export function ClaimFlowPanel({ claimToken }: { claimToken: string }) {
         <div className="rounded-xl border border-black/10 bg-white p-4 text-sm">
           <p className="text-ink"><span className="font-semibold">Agent:</span> {claim.agentName} (@{claim.agentHandle})</p>
           <p className="text-steel"><span className="font-semibold text-ink">Claim expires:</span> {formatIsoMinuteUtc(claim.expiresAt)}</p>
-          <p className="text-steel"><span className="font-semibold text-ink">Human session:</span> {human ? "active" : "missing"}</p>
+          <p className="text-steel"><span className="font-semibold text-ink">GitHub account:</span> {human?.githubLogin ?? "not signed in"}</p>
         </div>
       ) : null}
 
@@ -338,104 +207,28 @@ export function ClaimFlowPanel({ claimToken }: { claimToken: string }) {
         </div>
       ) : null}
 
-      {!locatingClaim && wizardStep === "start_email" ? (
-        <div className="rounded-xl border border-black/10 bg-white p-4 space-y-3">
-          <h3 className="text-sm font-semibold text-ink">Step 1: Sign In or Create Account</h3>
-          <div className="grid gap-2 sm:grid-cols-2">
-            <input
-              type="email"
-              aria-label="Email"
-              placeholder="Email"
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
-              className="rounded-lg border border-black/10 px-3 py-2 text-sm"
-            />
-            <input
-              type="text"
-              aria-label="Username"
-              placeholder="Username (new accounts only)"
-              value={username}
-              onChange={(event) => setUsername(event.target.value)}
-              className="rounded-lg border border-black/10 px-3 py-2 text-sm"
-            />
-          </div>
+      {!locatingClaim && wizardStep === "sign_in" ? (
+        <div className="space-y-3 rounded-xl border border-black/10 bg-white p-4">
+          <h3 className="text-sm font-semibold text-ink">Sign In With GitHub</h3>
+          <p className="text-sm text-steel">GitHub is used to connect this agent to your ClawReview account.</p>
           <button
             type="button"
-            onClick={startEmailVerification}
-            disabled={busyAction !== "none" || !email.trim()}
+            onClick={continueWithGithub}
+            disabled={busyAction !== "none"}
             className="rounded-full bg-ink px-4 py-2 text-sm text-white disabled:cursor-not-allowed disabled:opacity-70"
           >
-            {busyAction === "startEmail" ? "Starting..." : "Send Email Code"}
-          </button>
-        </div>
-      ) : null}
-
-      {!locatingClaim && wizardStep === "verify_code" ? (
-        <div className="rounded-xl border border-black/10 bg-white p-4 space-y-3">
-          <h3 className="text-sm font-semibold text-ink">Step 2: Verify Email</h3>
-          <input
-            type="text"
-            aria-label="Verification code"
-            placeholder="Enter your code"
-            value={code}
-            onChange={(event) => setCode(event.target.value)}
-            className="w-full rounded-lg border border-black/10 px-3 py-2 text-sm"
-          />
-          <div className="flex flex-wrap gap-2">
-            <button
-              type="button"
-              onClick={verifyEmailCode}
-              disabled={busyAction !== "none" || !email.trim() || !code.trim()}
-              className="rounded-full bg-ink px-4 py-2 text-sm text-white disabled:cursor-not-allowed disabled:opacity-70"
-            >
-              {busyAction === "verifyEmail" ? "Verifying..." : "Verify Email"}
-            </button>
-            <button
-              type="button"
-              onClick={resendCode}
-              disabled={busyAction !== "none" || !email.trim() || resendCooldownSeconds > 0}
-              className="rounded-full border border-black/10 bg-white px-4 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-70"
-            >
-              {resendCooldownSeconds > 0 ? `Resend code (${resendCooldownSeconds}s)` : "No email received? Resend code"}
-            </button>
-            <button
-              type="button"
-              onClick={changeEmail}
-              disabled={busyAction !== "none"}
-              className="rounded-full border border-black/10 bg-white px-4 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-70"
-            >
-              Change email
-            </button>
-          </div>
-          {verificationCodeDevOnly ? (
-            <p className="text-xs text-steel">
-              Dev code: <code>{verificationCodeDevOnly}</code>
-            </p>
-          ) : null}
-        </div>
-      ) : null}
-
-      {!locatingClaim && wizardStep === "connect_github" ? (
-        <div className="rounded-xl border border-black/10 bg-white p-4 space-y-3">
-          <h3 className="text-sm font-semibold text-ink">Step 3: Connect GitHub</h3>
-          <button
-            type="button"
-            onClick={connectGithub}
-            disabled={busyAction !== "none" || !human}
-            className="rounded-full bg-ink px-4 py-2 text-sm text-white disabled:cursor-not-allowed disabled:opacity-70"
-          >
-            {busyAction === "connectGithub" ? "Connecting..." : "Connect GitHub"}
+            {busyAction === "github" ? "Opening GitHub..." : "Continue with GitHub"}
           </button>
         </div>
       ) : null}
 
       {!locatingClaim && wizardStep === "claim_agent" ? (
-        <div className="rounded-xl border border-black/10 bg-white p-4 space-y-3">
-          <h3 className="text-sm font-semibold text-ink">Step 4: Claim Agent</h3>
+        <div className="space-y-3 rounded-xl border border-black/10 bg-white p-4">
+          <h3 className="text-sm font-semibold text-ink">Claim Agent</h3>
           <button
             type="button"
             onClick={claimAgent}
-            disabled={busyAction !== "none" || !requirements.claimable}
+            disabled={busyAction !== "none" || !claim?.claimRequirements.claimable}
             className="rounded-full bg-ink px-4 py-2 text-sm text-white disabled:cursor-not-allowed disabled:opacity-70"
           >
             {busyAction === "claim" ? "Claiming..." : "Claim Agent"}
@@ -450,7 +243,7 @@ export function ClaimFlowPanel({ claimToken }: { claimToken: string }) {
       ) : null}
 
       {!locatingClaim && wizardStep === "unavailable" ? (
-        <div className="rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700 space-y-2">
+        <div className="space-y-2 rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">
           <p>Claim link unavailable.</p>
           <button
             type="button"

@@ -1,4 +1,4 @@
-import { NextRequest } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import {
   badRequest,
   conflict,
@@ -560,13 +560,29 @@ async function exchangeGithubCodeForUser(code: string) {
   if (!userRes.ok) {
     return { error: `GitHub user fetch failed (${userRes.status})` as const };
   }
-  const userBody = await userRes.json() as { id?: number; login?: string };
+  const userBody = await userRes.json() as { id?: number; login?: string; email?: string | null };
   if (!userBody.id || !userBody.login) {
     return { error: "GitHub user payload missing id/login" as const };
   }
+  let email = userBody.email ?? null;
+  if (!email) {
+    const emailsRes = await fetch("https://api.github.com/user/emails", {
+      headers: {
+        authorization: `Bearer ${tokenBody.access_token}`,
+        accept: "application/vnd.github+json"
+      }
+    });
+    if (emailsRes.ok) {
+      const emails = await emailsRes.json() as Array<{ email?: string; primary?: boolean; verified?: boolean }>;
+      email = emails.find((item) => item.primary && item.verified && item.email)?.email
+        ?? emails.find((item) => item.verified && item.email)?.email
+        ?? null;
+    }
+  }
   return {
     githubId: String(userBody.id),
-    githubLogin: userBody.login
+    githubLogin: userBody.login,
+    email
   };
 }
 
@@ -976,7 +992,7 @@ export async function GET(req: NextRequest) {
         human: human ? {
           id: human.id,
           username: human.username,
-          email: human.email,
+          email: human.email ?? null,
           emailVerified: Boolean(human.emailVerifiedAt),
           githubLinked: Boolean(human.githubVerifiedAt),
           githubLogin: human.githubLogin ?? null
@@ -991,7 +1007,7 @@ export async function GET(req: NextRequest) {
         human: {
           id: sessionState.human.id,
           username: sessionState.human.username,
-          email: sessionState.human.email,
+          email: sessionState.human.email ?? null,
           emailVerified: Boolean(sessionState.human.emailVerifiedAt),
           githubLinked: Boolean(sessionState.human.githubVerifiedAt),
           githubLogin: sessionState.human.githubLogin ?? null
@@ -1019,7 +1035,7 @@ export async function GET(req: NextRequest) {
         human: {
           id: sessionState.human.id,
           username: sessionState.human.username,
-          email: sessionState.human.email,
+          email: sessionState.human.email ?? null,
           emailVerified: Boolean(sessionState.human.emailVerifiedAt),
           githubLinked: Boolean(sessionState.human.githubVerifiedAt),
           githubLogin: sessionState.human.githubLogin ?? null
@@ -1075,11 +1091,11 @@ export async function GET(req: NextRequest) {
     }
 
     if (segments.length === 4 && segments[0] === "humans" && segments[1] === "auth" && segments[2] === "github" && segments[3] === "start") {
-      const sessionState = requireHumanSession(req, store);
-      if (!sessionState.ok) return sessionState.response;
+      const sessionToken = getSessionTokenFromRequest(req);
+      const session = sessionToken ? store.getHumanSession(sessionToken) : null;
       const responseMode = getGithubResponseMode(req);
       const returnTo = getGithubReturnTo(req);
-      const state = store.createGithubLinkState(sessionState.human.id, { responseMode, returnTo });
+      const state = store.createGithubLinkState(session?.humanId, { responseMode, returnTo });
       const clientId = process.env.GITHUB_CLIENT_ID;
       if (!clientId) {
         if (shouldAllowUnsignedDev()) {
@@ -1101,6 +1117,7 @@ export async function GET(req: NextRequest) {
       authUrl.searchParams.set("client_id", clientId);
       authUrl.searchParams.set("state", state.state);
       authUrl.searchParams.set("redirect_uri", callback);
+      authUrl.searchParams.set("scope", "read:user user:email");
       return ok({ authorization_url: authUrl.toString(), state: state.state, expires_at: state.expiresAt });
     }
 
@@ -1110,33 +1127,43 @@ export async function GET(req: NextRequest) {
       if (!stateValue) return badRequest("Missing OAuth state", undefined, { errorCode: ERROR_CODES.badRequest });
       const state = store.consumeGithubLinkState(stateValue);
       if (!state) return unauthorized("Invalid or expired OAuth state", { errorCode: ERROR_CODES.unauthorized });
-      let user: { githubId: string; githubLogin: string } | { error: string };
+      let user: { githubId: string; githubLogin: string; email?: string | null } | { error: string };
       if (code) {
         user = await exchangeGithubCodeForUser(code);
       } else if (shouldAllowUnsignedDev()) {
         const mockId = req.nextUrl.searchParams.get("mock_id") || randomId("gh");
         const mockLogin = req.nextUrl.searchParams.get("mock_login") || "mock-user";
-        user = { githubId: mockId, githubLogin: mockLogin };
+        const mockEmail = req.nextUrl.searchParams.get("mock_email");
+        user = { githubId: mockId, githubLogin: mockLogin, email: mockEmail };
       } else {
         user = { error: "Missing OAuth code" };
       }
       if ("error" in user) {
         return badRequest(user.error, undefined, { errorCode: ERROR_CODES.badRequest });
       }
-      const linked = store.linkHumanGithub(state.humanId, user.githubId, user.githubLogin);
-      if ("error" in linked) {
+      const authenticated = store.createOrUpdateHumanFromGithub({
+        humanId: state.humanId,
+        githubId: user.githubId,
+        githubLogin: user.githubLogin,
+        email: user.email
+      });
+      if ("error" in authenticated) {
         return conflict("GitHub account is already linked to another human", { errorCode: ERROR_CODES.conflict });
       }
       await persistRuntimeStore(store);
       if (state.responseMode === "redirect" && state.returnTo) {
         try {
           const destination = new URL(state.returnTo, getPublicAppUrl(req));
-          return Response.redirect(destination, 302);
+          const redirect = NextResponse.redirect(destination, 302);
+          setHumanSessionCookie(redirect, authenticated.session.token);
+          return redirect;
         } catch {
           // fallback to JSON response
         }
       }
-      return ok({ human: linked.human, github_linked: true });
+      const res = ok({ human: authenticated.human, github_authenticated: true, github_linked: true });
+      setHumanSessionCookie(res, authenticated.session.token);
+      return res;
     }
 
     if (segments.length === 1 && segments[0] === "agents") {
@@ -1205,7 +1232,7 @@ export async function GET(req: NextRequest) {
           claimRequirements: {
             emailVerified: Boolean(currentHuman?.emailVerifiedAt),
             githubLinked: Boolean(currentHuman?.githubVerifiedAt),
-            claimable: Boolean(currentHuman?.emailVerifiedAt && currentHuman?.githubVerifiedAt)
+            claimable: Boolean(currentHuman?.githubVerifiedAt)
           }
         }
       });
@@ -1357,7 +1384,7 @@ export async function POST(req: NextRequest) {
       const unsignedDev = shouldAllowUnsignedDev();
       if (!unsignedDev) {
         const emailResult = await sendVerificationEmail({
-          to: started.human.email,
+          to: started.human.email ?? parsed.data.email,
           code: started.verification.code,
           expiresInMinutes: Math.max(1, Math.floor(HUMAN_EMAIL_CODE_TTL_MS / 60000))
         });
@@ -1371,7 +1398,7 @@ export async function POST(req: NextRequest) {
       await persistRuntimeStore(store);
       const response = {
         human_id: started.human.id,
-        email: started.human.email,
+        email: started.human.email ?? parsed.data.email,
         status: "verification_sent",
         delivery: unsignedDev ? "dev" : "email",
         ...(unsignedDev ? { verification_code_dev_only: started.verification.code } : {})
@@ -1417,7 +1444,7 @@ export async function POST(req: NextRequest) {
         human: {
           id: verified.human.id,
           username: verified.human.username,
-          email: verified.human.email,
+          email: verified.human.email ?? null,
           emailVerified: true,
           githubLinked: Boolean(verified.human.githubVerifiedAt)
         }
@@ -1841,16 +1868,10 @@ export async function POST(req: NextRequest) {
       const payload = parsedBody.data;
       const sessionState = requireHumanSession(req, store);
       if (!sessionState.ok) return sessionState.response;
-      if (!sessionState.human.emailVerifiedAt) {
-        return forbidden("Human email must be verified before claim", {
-          errorCode: ERROR_CODES.emailNotVerified,
-          hint: "Complete POST /api/v1/humans/auth/verify-email first."
-        });
-      }
       if (!sessionState.human.githubVerifiedAt) {
         return forbidden("GitHub account must be linked before claim", {
           errorCode: ERROR_CODES.githubNotLinked,
-          hint: "Complete GitHub OAuth link before claiming this agent."
+          hint: "Sign in with GitHub before claiming this agent."
         });
       }
       if (!isClaimRequestFromClaimPage(req, payload.claim_token) && !shouldAllowUnsignedDev()) {
@@ -1883,7 +1904,7 @@ export async function POST(req: NextRequest) {
         },
         human: {
           id: result.human.id,
-          email: result.human.email,
+          email: result.human.email ?? null,
           githubLogin: result.human.githubLogin ?? null
         }
       });

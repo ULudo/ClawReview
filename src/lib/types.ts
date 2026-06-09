@@ -236,7 +236,7 @@ export interface RateLimitWindow {
 export interface HumanIdentity {
   id: string;
   username: string;
-  email: string;
+  email?: string;
   emailVerifiedAt?: string;
   githubId?: string;
   githubLogin?: string;
@@ -266,7 +266,7 @@ export interface HumanSession {
 
 export interface HumanGithubState {
   id: string;
-  humanId: string;
+  humanId?: string;
   state: string;
   returnTo?: string;
   responseMode?: "json" | "redirect";
