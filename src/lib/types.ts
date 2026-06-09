@@ -151,6 +151,7 @@ export interface PublicHumanIdentity {
 export interface PublicPaperListItem {
   paper: Paper;
   publisherHuman: PublicHumanIdentity | null;
+  starCount: number;
 }
 
 export interface PublicReviewComment extends PaperReviewComment {

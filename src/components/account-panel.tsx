@@ -1,12 +1,15 @@
 "use client";
 
-import Link from "next/link";
 import type { Route } from "next";
 import { useEffect, useState } from "react";
+import { PaginatedRowList, type PaginatedRow } from "@/components/paginated-row-list";
 import { SectionCard } from "@/components/section-card";
-import { UserActivitySections } from "@/components/user-activity-sections";
+import { UserActivitySections, UserSummaryStats } from "@/components/user-activity-sections";
 import { formatIsoMinuteUtc } from "@/lib/date-format";
 import type { PublicCommunityPostListItem, PublicHumanIdentity, PublicPaperListItem, PublicReviewComment, PublicUserSummary } from "@/lib/types";
+
+const ACCOUNT_LIST_LIMIT = 8;
+const AGENT_CONNECTION_LIMIT = 25;
 
 type ProfileReview = PublicReviewComment & {
   paperTitle: string;
@@ -199,25 +202,7 @@ export function AccountPanel() {
   const { account } = state;
   return (
     <div className="space-y-6">
-      <SectionCard title="Account" headingLevel={1}>
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <h3 className="text-lg font-semibold text-ink">{account.human.username}</h3>
-            <p className="text-steel">{account.human.email}</p>
-            <p className="text-steel">GitHub: {account.human.githubLogin ?? "not connected"}</p>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {!account.human.githubLinked ? (
-              <button type="button" onClick={connectGithub} className="rounded-full border border-black/10 bg-white px-3 py-1.5 text-sm hover:border-signal hover:text-signal">
-                Connect GitHub
-              </button>
-            ) : null}
-            <button type="button" onClick={logout} className="rounded-full border border-black/10 bg-white px-3 py-1.5 text-sm hover:border-signal hover:text-signal">
-              Log out
-            </button>
-          </div>
-        </div>
-      </SectionCard>
+      <AccountOverview account={account} onConnectGithub={connectGithub} onLogout={logout} />
 
       {!account.human.githubLinked ? (
         <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
@@ -225,11 +210,6 @@ export function AccountPanel() {
         </div>
       ) : null}
 
-      <AccountList title="Claimed Agents" empty="No claimed agents yet." items={account.agents.map((agent) => ({
-        id: agent.id,
-        label: `${agent.name} (@${agent.handle})`,
-        meta: agent.status
-      }))} />
       {account.profile ? (
         <UserActivitySections
           human={account.profile.human}
@@ -240,45 +220,122 @@ export function AccountPanel() {
           outstandingReviewCount={account.profile.outstandingReviewCount}
           reviewRequirementSatisfied={account.profile.reviewRequirementSatisfied}
           compactEmpty
+          showSummary={false}
+          itemLimit={ACCOUNT_LIST_LIMIT}
         />
       ) : null}
-      <AccountList title="Starred Papers" empty="No starred papers yet." items={account.starred_papers.map(({ paper }) => ({
-        id: paper.id,
-        label: paper.title,
-        href: `/papers/${paper.id}` as Route,
-        meta: paper.latestStatus
-      }))} />
-      <AccountList title="Starred Posts" empty="No starred posts yet." items={account.starred_posts.map(({ post }) => ({
-        id: post.id,
-        label: post.title,
-        href: `/posts/${post.id}` as Route,
-        meta: formatIsoMinuteUtc(post.updatedAt)
-      }))} />
+      <div className="grid gap-6 lg:grid-cols-2">
+        <AccountList title="Starred Papers" empty="No starred papers yet." items={account.starred_papers.map(({ paper }) => ({
+          id: paper.id,
+          label: paper.title,
+          href: `/papers/${paper.id}` as Route,
+          detail: `Status: ${paper.latestStatus.replace("_", " ")}`,
+          meta: "Paper"
+        }))} />
+        <AccountList title="Starred Posts" empty="No starred posts yet." items={account.starred_posts.map(({ post }) => ({
+          id: post.id,
+          label: post.title,
+          href: `/posts/${post.id}` as Route,
+          detail: `Updated ${formatIsoMinuteUtc(post.updatedAt)}`,
+          meta: "Post"
+        }))} />
+      </div>
+      <AgentConnections agents={account.agents} />
     </div>
   );
 }
 
-function AccountList({ title, empty, items }: { title: string; empty: string; items: Array<{ id: string; label: string; href?: Route; meta: string }> }) {
+function AccountOverview({
+  account,
+  onConnectGithub,
+  onLogout
+}: {
+  account: AccountData;
+  onConnectGithub: () => void;
+  onLogout: () => void;
+}) {
+  const outstandingReviewCount = account.profile?.outstandingReviewCount ?? 0;
+  const reviewRequirementSatisfied = account.profile?.reviewRequirementSatisfied ?? true;
+  const submittedReviewsTone = reviewRequirementSatisfied ? "text-emerald-700" : "text-rose-700";
+  const submittedReviewsSuffix = outstandingReviewCount > 0 ? ` (${outstandingReviewCount} missing)` : "";
+
+  return (
+    <SectionCard title="Account" headingLevel={1}>
+      <div className="space-y-5">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0">
+            <h3 className="truncate text-lg font-semibold text-ink">{account.human.username}</h3>
+            <p className="truncate text-sm text-steel">{account.human.email}</p>
+            <p className="truncate text-sm text-steel">GitHub: {account.human.githubLogin ?? "not connected"}</p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {!account.human.githubLinked ? (
+              <button type="button" onClick={onConnectGithub} className="rounded-full border border-black/10 bg-white px-3 py-1.5 text-sm hover:border-signal hover:text-signal">
+                Connect GitHub
+              </button>
+            ) : null}
+            <button type="button" onClick={onLogout} className="rounded-full border border-black/10 bg-white px-3 py-1.5 text-sm hover:border-signal hover:text-signal">
+              Log out
+            </button>
+          </div>
+        </div>
+        {account.profile ? (
+          <UserSummaryStats
+            summary={account.profile.summary}
+            submittedReviewsTone={submittedReviewsTone}
+            submittedReviewsSuffix={submittedReviewsSuffix}
+          />
+        ) : null}
+      </div>
+    </SectionCard>
+  );
+}
+
+function AccountList({
+  title,
+  empty,
+  items,
+  itemLimit = ACCOUNT_LIST_LIMIT
+}: {
+  title: string;
+  empty: string;
+  items: Array<{ id: string; label: string; href?: Route; detail: string; meta: string }>;
+  itemLimit?: number;
+}) {
+  const rows: PaginatedRow[] = items.map((item) => ({
+    id: item.id,
+    href: item.href,
+    title: item.label,
+    detail: item.detail,
+    meta: item.meta,
+    ariaLabel: `Open ${item.label}`
+  }));
+
   return (
     <SectionCard title={title}>
-      {items.length ? (
-        <ul className="space-y-2 text-sm">
-          {items.map((item) => (
-            <li key={item.id} className="rounded-lg border border-black/10 bg-white p-3">
-              {item.href ? (
-                <Link href={item.href} className="font-medium text-ink hover:text-signal">
-                  {item.label}
-                </Link>
-              ) : (
-                <span className="font-medium text-ink">{item.label}</span>
-              )}
-              <p className="text-steel">{item.meta}</p>
-            </li>
-          ))}
-        </ul>
-      ) : (
-        <p className="text-sm text-steel">{empty}</p>
-      )}
+      <PaginatedRowList rows={rows} empty={empty} pageSize={itemLimit} />
+    </SectionCard>
+  );
+}
+
+function AgentConnections({ agents }: { agents: AccountData["agents"] }) {
+  const rows: PaginatedRow[] = agents.map((agent) => ({
+    id: agent.id,
+    title: `${agent.name} (@${agent.handle})`,
+    detail: `Status: ${agent.status}`,
+    meta: "Agent"
+  }));
+
+  return (
+    <SectionCard title="Agent Connections">
+      <details className="text-sm">
+        <summary className="cursor-pointer text-steel hover:text-ink">
+          {agents.length ? `${agents.length} connected agent${agents.length === 1 ? "" : "s"}` : "No connected agents yet."}
+        </summary>
+        <div className="mt-3">
+          <PaginatedRowList rows={rows} empty="No connected agents yet." pageSize={AGENT_CONNECTION_LIMIT} />
+        </div>
+      </details>
     </SectionCard>
   );
 }

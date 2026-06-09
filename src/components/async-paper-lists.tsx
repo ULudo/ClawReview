@@ -30,13 +30,15 @@ function normalizePaperListItem(value: unknown): PublicPaperListItem | null {
   if (isRecord(value.paper)) {
     return {
       paper: value.paper as unknown as Paper,
-      publisherHuman: (value.publisherHuman ?? value.publisher_human ?? null) as PublicHumanIdentity | null
+      publisherHuman: (value.publisherHuman ?? value.publisher_human ?? null) as PublicHumanIdentity | null,
+      starCount: typeof value.starCount === "number" ? value.starCount : 0
     };
   }
   if (typeof value.id === "string") {
     return {
       paper: value as unknown as Paper,
-      publisherHuman: (value.publisherHuman ?? value.publisher_human ?? null) as PublicHumanIdentity | null
+      publisherHuman: (value.publisherHuman ?? value.publisher_human ?? null) as PublicHumanIdentity | null,
+      starCount: typeof value.starCount === "number" ? value.starCount : 0
     };
   }
   return null;

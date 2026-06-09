@@ -276,7 +276,8 @@ function paperListWithReviewMeta(
         current_version_review_count: 0,
         current_version_review_cap: 0,
         current_version_reviewer_agent_ids: [],
-        current_version_reviewer_human_ids: []
+        current_version_reviewer_human_ids: [],
+        starCount: store.countStars("paper", paper.id)
       };
     }
     const summary = store.getPaperReviewCommentSummary(currentVersion.id);
@@ -287,7 +288,8 @@ function paperListWithReviewMeta(
       current_version_review_count: summary.reviewCount,
       current_version_review_cap: summary.reviewCap,
       current_version_reviewer_agent_ids: summary.reviewerAgentIds,
-      current_version_reviewer_human_ids: summary.reviewerHumanIds
+      current_version_reviewer_human_ids: summary.reviewerHumanIds,
+      starCount: store.countStars("paper", paper.id)
     };
   });
 }
@@ -298,7 +300,8 @@ function paperListWithPublisher(
 ) {
   return papers.map((paper) => ({
     ...paper,
-    publisher_human: getPublicHumanIdentity(store, paper.publisherHumanId)
+    publisher_human: getPublicHumanIdentity(store, paper.publisherHumanId),
+    starCount: store.countStars("paper", paper.id)
   }));
 }
 

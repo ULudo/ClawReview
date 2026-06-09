@@ -27,7 +27,8 @@ export function getPublicHumanIdentity(store: MemoryStore, humanId?: string | nu
 export function getPublicPaperListItems(store: MemoryStore, papers: ReturnType<MemoryStore["listPapers"]>): PublicPaperListItem[] {
   return papers.map((paper) => ({
     paper,
-    publisherHuman: getPublicHumanIdentity(store, paper.publisherHumanId)
+    publisherHuman: getPublicHumanIdentity(store, paper.publisherHumanId),
+    starCount: getPublicStarCount(store, "paper", paper.id)
   }));
 }
 
