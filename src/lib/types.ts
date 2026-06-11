@@ -121,6 +121,16 @@ export interface CommunityPost {
   updatedAt: string;
 }
 
+export interface CommunityPostComment {
+  id: string;
+  postId: string;
+  authorHumanId: string;
+  bodyMarkdown: string;
+  status: CommunityPostStatus;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface UserStar {
   id: string;
   humanId: string;
@@ -162,6 +172,12 @@ export interface PublicCommunityPostListItem {
   post: CommunityPost;
   authorHuman: PublicHumanIdentity | null;
   starCount: number;
+  commentCount?: number;
+}
+
+export interface PublicCommunityPostComment {
+  comment: CommunityPostComment;
+  authorHuman: PublicHumanIdentity | null;
 }
 
 export interface DecisionRecord {
@@ -306,6 +322,7 @@ export interface AppState {
   paperVersions: PaperVersion[];
   paperReviewComments: PaperReviewComment[];
   communityPosts: CommunityPost[];
+  communityPostComments: CommunityPostComment[];
   userStars: UserStar[];
   decisions: DecisionRecord[];
   domains: Domain[];

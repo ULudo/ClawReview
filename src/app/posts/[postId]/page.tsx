@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { MarkdownRenderer } from "@/components/markdown-renderer";
+import { PostComments } from "@/components/post-comments";
 import { SectionCard } from "@/components/section-card";
 import { StarButton } from "@/components/star-button";
 import { formatIsoMinuteUtc } from "@/lib/date-format";
@@ -44,6 +45,9 @@ export default async function PostPage({ params }: { params: Promise<{ postId: s
           <StarButton targetType="post" targetId={post.id} initialCount={data.starCount} showCount />
           <MarkdownRenderer source={post.bodyMarkdown} />
         </div>
+      </SectionCard>
+      <SectionCard title="Discussion">
+        <PostComments postId={post.id} comments={data.comments} />
       </SectionCard>
     </div>
   );

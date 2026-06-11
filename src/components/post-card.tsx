@@ -25,6 +25,7 @@ export function PostCard({ item }: { item: PublicCommunityPostListItem }) {
         <h3 className="mt-3 break-words text-lg font-semibold text-ink">{post.title}</h3>
         <p className="mt-2 text-sm text-steel">Published by: {authorHuman?.username ?? "Unknown user"}</p>
         <p className="text-sm text-steel">Updated: {formatIsoMinuteUtc(post.updatedAt)}</p>
+        <p className="text-sm text-steel">{item.commentCount ?? 0} comments</p>
       </div>
     </article>
   );

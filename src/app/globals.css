@@ -44,6 +44,18 @@ code {
   padding-left: 1.25rem;
 }
 
+.cr-markdown ul {
+  list-style-type: disc;
+}
+
+.cr-markdown ol {
+  list-style-type: decimal;
+}
+
+.cr-markdown li {
+  margin: 0.25rem 0;
+}
+
 .cr-markdown blockquote {
   border-left: 3px solid rgba(0,0,0,0.15);
   padding-left: 0.75rem;

@@ -20,6 +20,7 @@ import type {
   AppState,
   AuditEvent,
   CommunityPost,
+  CommunityPostComment,
   DecisionRecord,
   HumanEmailVerification,
   HumanGithubState,
@@ -68,6 +69,7 @@ export class MemoryStore {
       paperVersions: baseState.paperVersions ?? [],
       paperReviewComments: baseState.paperReviewComments ?? [],
       communityPosts: baseState.communityPosts ?? [],
+      communityPostComments: baseState.communityPostComments ?? [],
       userStars: baseState.userStars ?? [],
       decisions: baseState.decisions ?? [],
       domains: baseState.domains ?? DEFAULT_DOMAINS,
@@ -199,6 +201,16 @@ export class MemoryStore {
     if (!post) return null;
     if (!options?.includeHidden && post.status !== "published") return null;
     return post;
+  }
+
+  listCommunityPostComments(postId: string, options?: { includeHidden?: boolean }) {
+    return this.state.communityPostComments
+      .filter((comment) => {
+        if (comment.postId !== postId) return false;
+        if (!options?.includeHidden && comment.status !== "published") return false;
+        return true;
+      })
+      .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
   }
 
   listStarsForHuman(humanId: string) {
@@ -932,6 +944,35 @@ export class MemoryStore {
       targetId: post.id
     });
     return post;
+  }
+
+  createCommunityPostComment(input: {
+    postId: string;
+    authorHumanId: string;
+    bodyMarkdown: string;
+  }) {
+    const post = this.getCommunityPost(input.postId);
+    if (!post) return { error: "Post not found" as const };
+    const now = nowIso();
+    const comment: CommunityPostComment = {
+      id: randomId("post_comment"),
+      postId: input.postId,
+      authorHumanId: input.authorHumanId,
+      bodyMarkdown: input.bodyMarkdown,
+      status: "published",
+      createdAt: now,
+      updatedAt: now
+    };
+    this.state.communityPostComments.push(comment);
+    this.audit({
+      actorType: "human_operator",
+      actorId: input.authorHumanId,
+      action: "community_post.comment.created",
+      targetType: "community_post_comment",
+      targetId: comment.id,
+      metadata: { postId: input.postId }
+    });
+    return { comment };
   }
 
   starTarget(input: { humanId: string; targetType: StarTargetType; targetId: string }) {

@@ -12,6 +12,7 @@ export const PAPER_SUBMISSIONS_PER_AGENT_PER_24H = 6;
 export const REVIEW_COMMENTS_PER_AGENT_PER_24H = 60;
 export const PAPER_SUBMISSIONS_PER_HUMAN_PER_24H = 6;
 export const REVIEW_COMMENTS_PER_HUMAN_PER_24H = 60;
+export const POST_COMMENTS_PER_HUMAN_PER_24H = 120;
 export const MAX_ATTACHMENT_COUNT_PER_PAPER = 16;
 export const MAX_ATTACHMENT_BYTES = 1 * 1024 * 1024;
 export const ALLOWED_ATTACHMENT_MIME = ["image/png"] as const;
@@ -38,5 +39,6 @@ export const RATE_LIMITS = {
   paperSubmissionsPerAgent24h: { limit: PAPER_SUBMISSIONS_PER_AGENT_PER_24H, windowMs: 24 * 60 * 60 * 1000 },
   paperSubmissionsPerHuman24h: { limit: PAPER_SUBMISSIONS_PER_HUMAN_PER_24H, windowMs: 24 * 60 * 60 * 1000 },
   reviewCommentsPerAgent24h: { limit: REVIEW_COMMENTS_PER_AGENT_PER_24H, windowMs: 24 * 60 * 60 * 1000 },
-  reviewCommentsPerHuman24h: { limit: REVIEW_COMMENTS_PER_HUMAN_PER_24H, windowMs: 24 * 60 * 60 * 1000 }
+  reviewCommentsPerHuman24h: { limit: REVIEW_COMMENTS_PER_HUMAN_PER_24H, windowMs: 24 * 60 * 60 * 1000 },
+  postCommentsPerHuman24h: { limit: POST_COMMENTS_PER_HUMAN_PER_24H, windowMs: 24 * 60 * 60 * 1000 }
 } as const;

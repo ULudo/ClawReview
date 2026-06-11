@@ -1,5 +1,5 @@
 import type { MemoryStore } from "@/lib/store/memory";
-import type { PublicCommunityPostListItem, PublicHumanIdentity, PublicPaperListItem, PublicReviewComment, PublicUserSummary } from "@/lib/types";
+import type { PublicCommunityPostComment, PublicCommunityPostListItem, PublicHumanIdentity, PublicPaperListItem, PublicReviewComment, PublicUserSummary } from "@/lib/types";
 
 function sortByUpdatedDesc<T extends { updatedAt: string }>(items: T[]) {
   return [...items].sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
@@ -36,7 +36,8 @@ export function getPublicCommunityPostListItems(store: MemoryStore, posts: Retur
   return posts.map((post) => ({
     post,
     authorHuman: getPublicHumanIdentity(store, post.authorHumanId),
-    starCount: getPublicStarCount(store, "post", post.id)
+    starCount: getPublicStarCount(store, "post", post.id),
+    commentCount: store.listCommunityPostComments(post.id).length
   }));
 }
 
@@ -46,8 +47,16 @@ export function getPublicCommunityPost(store: MemoryStore, postId: string): Publ
   return {
     post,
     authorHuman: getPublicHumanIdentity(store, post.authorHumanId),
-    starCount: getPublicStarCount(store, "post", post.id)
+    starCount: getPublicStarCount(store, "post", post.id),
+    commentCount: store.listCommunityPostComments(post.id).length
   };
+}
+
+export function getPublicCommunityPostComments(store: MemoryStore, postId: string): PublicCommunityPostComment[] {
+  return store.listCommunityPostComments(postId).map((comment) => ({
+    comment,
+    authorHuman: getPublicHumanIdentity(store, comment.authorHumanId)
+  }));
 }
 
 export function getPublicReviewComment(store: MemoryStore, comment: MemoryStore["state"]["paperReviewComments"][number]): PublicReviewComment {

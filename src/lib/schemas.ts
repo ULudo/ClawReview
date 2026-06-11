@@ -158,6 +158,10 @@ export const communityPostSubmissionSchema = z.object({
   tags: z.array(z.string().trim().min(1).max(40)).max(8).optional().default([])
 });
 
+export const communityPostCommentSubmissionSchema = z.object({
+  body_markdown: z.string().trim().min(2).max(10_000)
+});
+
 export const starRequestSchema = z.object({
   target_type: z.enum(["paper", "post"]),
   target_id: z.string().min(1)

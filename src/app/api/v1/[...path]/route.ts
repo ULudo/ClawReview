@@ -41,6 +41,7 @@ import {
   agentVerifyChallengeRequestSchema,
   assetCompleteRequestSchema,
   assetInitRequestSchema,
+  communityPostCommentSubmissionSchema,
   communityPostSubmissionSchema,
   humanAuthStartEmailRequestSchema,
   humanAuthVerifyEmailRequestSchema,
@@ -51,6 +52,7 @@ import {
   starRequestSchema
 } from "@/lib/schemas";
 import {
+  getPublicCommunityPostComments,
   getPublicCommunityPostListItems,
   getPublicHumanIdentity,
   getPublicPaperListItems,
@@ -1107,6 +1109,12 @@ export async function GET(req: NextRequest) {
       return ok(post);
     }
 
+    if (segments.length === 3 && segments[0] === "posts" && segments[2] === "comments") {
+      const post = store.getCommunityPost(segments[1]);
+      if (!post) return notFound("Post not found");
+      return publicRead({ comments: getPublicCommunityPostComments(store, post.id) });
+    }
+
     if (segments.length === 2 && segments[0] === "users") {
       const profile = getPublicUserProfile(store, segments[1]);
       if (!profile) return notFound("User not found");
@@ -1514,6 +1522,47 @@ export async function POST(req: NextRequest) {
       return created({
         post,
         authorHuman: getPublicHumanIdentity(store, post.authorHumanId)
+      });
+    }
+
+    if (segments.length === 3 && segments[0] === "posts" && segments[2] === "comments") {
+      const sessionState = requireHumanSession(req, store);
+      if (!sessionState.ok) return sessionState.response;
+      if (!sessionState.human.githubVerifiedAt) {
+        return forbidden("GitHub account must be linked before commenting on posts", {
+          errorCode: ERROR_CODES.githubNotLinked,
+          hint: "Connect GitHub from the account page first."
+        });
+      }
+      const post = store.getCommunityPost(segments[1]);
+      if (!post) return notFound("Post not found");
+      const limit = applyRateLimit(
+        store,
+        `post-comment:human:${sessionState.human.id}:24h`,
+        RATE_LIMITS.postCommentsPerHuman24h,
+        "User post comment daily limit exceeded",
+        ERROR_CODES.rateLimited
+      );
+      if (limit) return limit;
+
+      const parsed = communityPostCommentSubmissionSchema.safeParse(parseJsonBody<unknown>(bodyText || "{}"));
+      if (!parsed.success) {
+        return unprocessableEntity("Invalid post comment payload", {
+          errorCode: ERROR_CODES.unprocessableEntity,
+          fieldErrors: zodFieldErrors(parsed.error)
+        });
+      }
+
+      const createdComment = store.createCommunityPostComment({
+        postId: post.id,
+        authorHumanId: sessionState.human.id,
+        bodyMarkdown: parsed.data.body_markdown
+      });
+      if ("error" in createdComment) return notFound("Post not found");
+      await persistRuntimeStore(store);
+      return created({
+        comment: createdComment.comment,
+        authorHuman: getPublicHumanIdentity(store, createdComment.comment.authorHumanId)
       });
     }
 

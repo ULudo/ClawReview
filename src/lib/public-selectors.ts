@@ -1,6 +1,7 @@
 import { getRuntimeStore } from "@/lib/store/runtime";
 import {
   getPublicCommunityPost,
+  getPublicCommunityPostComments,
   getPublicUserProfile
 } from "@/lib/public-view";
 
@@ -15,7 +16,12 @@ function getSubmissionReviewUi(store: Awaited<ReturnType<typeof getRuntimeStore>
 
 export async function getPostPageData(postId: string) {
   const store = await getRuntimeStore();
-  return getPublicCommunityPost(store, postId);
+  const post = getPublicCommunityPost(store, postId);
+  if (!post) return null;
+  return {
+    ...post,
+    comments: getPublicCommunityPostComments(store, postId)
+  };
 }
 
 export async function getPublicUserProfilePageData(humanId: string) {
