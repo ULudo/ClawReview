@@ -682,6 +682,23 @@ function validateReferencedAttachments(
   });
 }
 
+function validateManuscriptImageTargets(unsupportedImageTargets: string[]) {
+  if (!unsupportedImageTargets.length) {
+    return null;
+  }
+
+  return unprocessableEntity("Markdown image references must use uploaded ClawReview assets.", {
+    errorCode: ERROR_CODES.paperAttachmentReferenceInvalid,
+    fieldErrors: unsupportedImageTargets.map((target) => ({
+      field: "manuscript.source",
+      rule: "unsupported_image_target",
+      expected: "asset:<asset_id>",
+      actual: target
+    })),
+    hint: "Upload each PNG through the asset flow, replace image links with asset:<assetId>, and include each asset id in attachment_asset_ids."
+  });
+}
+
 function isStringArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((entry) => typeof entry === "string");
 }
@@ -743,12 +760,12 @@ function mergePaperValidationDiagnostics(
   return merged;
 }
 
-function buildSubmissionGateError(outstandingReviewCount: number, eligibleReviewCount: number) {
+function buildSubmissionGateError(outstandingReviewCount: number, eligibleReviewCountForUser: number) {
   return forbidden(`This user must complete ${outstandingReviewCount} more review${outstandingReviewCount === 1 ? "" : "s"} before submitting again.`, {
     errorCode: ERROR_CODES.paperReviewsRequired,
-    hint: eligibleReviewCount > 0
-      ? `Submit ${outstandingReviewCount} more review${outstandingReviewCount === 1 ? "" : "s"} from any agent under this user account, or retry if no review targets remain for this agent.`
-      : "No eligible review targets remain for this agent, so submission bypass is allowed."
+    hint: eligibleReviewCountForUser > 0
+      ? `Submit ${outstandingReviewCount} more review${outstandingReviewCount === 1 ? "" : "s"} from any active agent under this user account.`
+      : "No eligible review targets remain for any active agent under this user account, so submission bypass is allowed."
   });
 }
 
@@ -832,6 +849,10 @@ function buildPaperValidationReport(params: {
   unresolvedAssetReferences.forEach((assetId) => {
     appendFieldError(extraFieldErrors, "attachment_asset_ids", "missing_asset_reference", `include ${assetId}`, "missing");
   });
+  const unsupportedImageTargets = manuscriptMetrics?.unsupportedImageTargets ?? [];
+  unsupportedImageTargets.forEach((target) => {
+    appendFieldError(extraFieldErrors, "manuscript.source", "unsupported_image_target", "asset:<asset_id>", target);
+  });
 
   const codeLinksRecommended = raw.claimTypes.some((claimType) => (CODE_REQUIRED_CLAIM_TYPES as readonly string[]).includes(claimType));
   if (codeLinksRecommended && (!raw.sourceRepoUrl || !raw.sourceRef)) {
@@ -863,6 +884,7 @@ function buildPaperValidationReport(params: {
       word_max: PAPER_MANUSCRIPT_MAX_WORDS,
       source_chars: manuscriptMetrics?.sourceChars ?? 0,
       referenced_asset_ids: manuscriptMetrics?.referencedAssetIds ?? [],
+      unsupported_image_targets: manuscriptMetrics?.unsupportedImageTargets ?? [],
       duplicate_exact_version_id: duplicateVersionId,
       semantic_blocks: semanticBlocks,
       missing_semantic_blocks: missingSemanticBlocks.map((block) => block.label)
@@ -886,6 +908,7 @@ function buildPaperValidationReport(params: {
       completed_review_count: submissionGate?.completedReviewCount ?? 0,
       outstanding_review_count: submissionGate?.outstandingReviewCount ?? 0,
       eligible_review_count_for_agent: submissionGate?.eligibleReviewCount ?? 0,
+      eligible_review_count_for_user: submissionGate?.eligibleReviewCountForUser ?? 0,
       blocked: submissionGate?.blocked ?? false,
       bypass_allowed: submissionGate?.bypassAllowed ?? false,
       next_submission_review_requirement: submissionGate?.nextSubmissionReviewRequirement ?? REVIEWS_REQUIRED_PER_SUBMISSION
@@ -1956,7 +1979,7 @@ export async function POST(req: NextRequest) {
       if (signedRateLimit) return signedRateLimit;
       const submissionGate = store.getSubmissionGateForAgent(agent.id);
       if (submissionGate?.blocked) {
-        return buildSubmissionGateError(submissionGate.outstandingReviewCount, submissionGate.eligibleReviewCount);
+        return buildSubmissionGateError(submissionGate.outstandingReviewCount, submissionGate.eligibleReviewCountForUser);
       }
       const humanPaperLimit = applyHumanOwnedWriteLimit(store, agent, "paper");
       if (humanPaperLimit) return humanPaperLimit;
@@ -2004,6 +2027,8 @@ export async function POST(req: NextRequest) {
       }
       const manuscriptLength = validateManuscriptLength(manuscript.source);
       if ("response" in manuscriptLength) return manuscriptLength.response;
+      const imageTargetCheck = validateManuscriptImageTargets(manuscriptLength.metrics.unsupportedImageTargets);
+      if (imageTargetCheck) return imageTargetCheck;
       if ((payload.attachment_asset_ids ?? []).length > MAX_ATTACHMENT_COUNT_PER_PAPER) {
         return unprocessableEntity(`No more than ${MAX_ATTACHMENT_COUNT_PER_PAPER} attachments are allowed`, {
           errorCode: ERROR_CODES.paperTooManyAttachments
@@ -2069,7 +2094,7 @@ export async function POST(req: NextRequest) {
       if (signedRateLimit) return signedRateLimit;
       const submissionGate = store.getSubmissionGateForAgent(agent.id);
       if (submissionGate?.blocked) {
-        return buildSubmissionGateError(submissionGate.outstandingReviewCount, submissionGate.eligibleReviewCount);
+        return buildSubmissionGateError(submissionGate.outstandingReviewCount, submissionGate.eligibleReviewCountForUser);
       }
       const humanPaperLimit = applyHumanOwnedWriteLimit(store, agent, "paper");
       if (humanPaperLimit) return humanPaperLimit;
@@ -2110,6 +2135,8 @@ export async function POST(req: NextRequest) {
       }
       const manuscriptLength = validateManuscriptLength(manuscript.source);
       if ("response" in manuscriptLength) return manuscriptLength.response;
+      const imageTargetCheck = validateManuscriptImageTargets(manuscriptLength.metrics.unsupportedImageTargets);
+      if (imageTargetCheck) return imageTargetCheck;
       if ((payload.attachment_asset_ids ?? []).length > MAX_ATTACHMENT_COUNT_PER_PAPER) {
         return unprocessableEntity(`No more than ${MAX_ATTACHMENT_COUNT_PER_PAPER} attachments are allowed`, {
           errorCode: ERROR_CODES.paperTooManyAttachments

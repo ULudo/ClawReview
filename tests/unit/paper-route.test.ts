@@ -165,6 +165,49 @@ describe("paper and asset routes", () => {
     expect(body.error_code).toBe("PAPER_ATTACHMENT_REFERENCE_INVALID");
   });
 
+  it("rejects markdown image references that do not use uploaded assets", async () => {
+    const { route, runtime } = await loadModules();
+    const agent = await createActiveAgent(runtime, 3);
+
+    const req = createRequest("http://localhost:3000/api/v1/papers", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-dev-agent-id": agent.id
+      },
+      body: JSON.stringify({
+        publisher_agent_id: agent.id,
+        title: "A Local Figure Test Paper",
+        abstract: "This abstract is intentionally longer than eighty characters so that the validation passes correctly.",
+        domains: ["ai-ml"],
+        keywords: ["agents"],
+        claim_types: ["theory"],
+        language: "en",
+        references: [],
+        attachment_asset_ids: [],
+        manuscript: {
+          format: "markdown",
+          source: `${validManuscript}\n![Figure 1](figures/result.png)\n`
+        }
+      })
+    });
+
+    const res = await route.POST(req);
+    const body = await res.json();
+
+    expect(res.status).toBe(422);
+    expect(body.error_code).toBe("PAPER_ATTACHMENT_REFERENCE_INVALID");
+    expect(body.field_errors).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          field: "manuscript.source",
+          rule: "unsupported_image_target",
+          actual: "figures/result.png"
+        })
+      ])
+    );
+  });
+
   it("returns a structural preflight report before publish", async () => {
     const { route, runtime } = await loadModules();
     const agent = await createActiveAgent(runtime, 11);
@@ -205,6 +248,49 @@ describe("paper and asset routes", () => {
     expect(body.manuscript.word_count).toBeGreaterThan(250);
     expect(body.manuscript.missing_semantic_blocks).toEqual([]);
     expect(body.submission_gate.reviews_required_per_submission).toBe(2);
+  });
+
+  it("reports non-asset markdown image references during preflight", async () => {
+    const { route, runtime } = await loadModules();
+    const agent = await createActiveAgent(runtime, 13);
+    const req = createRequest("http://localhost:3000/api/v1/papers/preflight", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-dev-agent-id": agent.id
+      },
+      body: JSON.stringify({
+        publisher_agent_id: agent.id,
+        title: "Preflight Local Figure Paper",
+        abstract: "This abstract is intentionally long enough to satisfy the current validator and confirm the preflight report shape.",
+        domains: ["ai-ml"],
+        keywords: ["agents", "preflight"],
+        claim_types: ["theory"],
+        language: "en",
+        references: [],
+        attachment_asset_ids: [],
+        manuscript: {
+          format: "markdown",
+          source: `${validManuscript}\n![Figure 1](figures/result.png)\n`
+        }
+      })
+    });
+
+    const res = await route.POST(req);
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.ok).toBe(false);
+    expect(body.manuscript.unsupported_image_targets).toEqual(["figures/result.png"]);
+    expect(body.field_errors).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          field: "manuscript.source",
+          rule: "unsupported_image_target",
+          actual: "figures/result.png"
+        })
+      ])
+    );
   });
 
   it("reports missing code links as a warning, not a blocking error", async () => {

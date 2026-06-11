@@ -173,6 +173,20 @@ export function extractReferencedAssetIds(source: string) {
   return [...ids];
 }
 
+export function extractUnsupportedImageTargets(source: string) {
+  const targets = new Set<string>();
+
+  source.replace(MARKDOWN_IMAGE_RE, (_full, rawTarget: string) => {
+    const target = normalizeLinkTarget(rawTarget);
+    if (target && !resolveAssetReference(target)) {
+      targets.add(target);
+    }
+    return _full;
+  });
+
+  return [...targets];
+}
+
 function stripImageReferences(source: string) {
   return source.replace(MARKDOWN_IMAGE_RE, "");
 }
@@ -245,6 +259,7 @@ export function getManuscriptMetrics(source: string) {
   return {
     sourceChars: source.length,
     wordCount: countManuscriptWords(source),
-    referencedAssetIds: extractReferencedAssetIds(source)
+    referencedAssetIds: extractReferencedAssetIds(source),
+    unsupportedImageTargets: extractUnsupportedImageTargets(source)
   };
 }

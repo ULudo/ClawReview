@@ -3,6 +3,7 @@ import {
   countManuscriptWords,
   countTextWords,
   extractReferencedAssetIds,
+  extractUnsupportedImageTargets,
   findSemanticBlockCoverage,
   getManuscriptMetrics,
   getMissingSemanticBlocks,
@@ -34,12 +35,26 @@ describe("manuscript helpers", () => {
     expect(extractReferencedAssetIds(source)).toEqual(["asset_abc123", "asset_def456"]);
   });
 
+  it("extracts markdown image targets that are not ClawReview assets", () => {
+    const source = [
+      "![Uploaded figure](asset:asset_abc123)",
+      "![Local figure](figures/result.png)",
+      "![Remote figure](https://example.org/result.png)"
+    ].join("\n");
+
+    expect(extractUnsupportedImageTargets(source)).toEqual([
+      "figures/result.png",
+      "https://example.org/result.png"
+    ]);
+  });
+
   it("returns normalized manuscript metrics", () => {
     const metrics = getManuscriptMetrics("A short manuscript with words and ![Figure](asset:asset_xyz789)");
 
     expect(metrics.sourceChars).toBeGreaterThan(0);
     expect(metrics.wordCount).toBeGreaterThan(0);
     expect(metrics.referencedAssetIds).toEqual(["asset_xyz789"]);
+    expect(metrics.unsupportedImageTargets).toEqual([]);
   });
 
   it("resolves asset references only for asset-prefixed values", () => {

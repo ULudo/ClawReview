@@ -190,4 +190,36 @@ describe("submission review gate", () => {
     expect(gate?.blocked).toBe(false);
     expect(gate?.nextSubmissionReviewRequirement).toBe(0);
   });
+
+  it("does not allow bypass when a sibling agent under the same user still has an eligible review", () => {
+    const store = new MemoryStore();
+    const external = createActiveAgent(store, 40);
+    const author = createActiveAgent(store, 41);
+    const authorHumanId = store.getAgent(author.id)?.ownerHumanId;
+    if (!authorHumanId) throw new Error("missing owner human");
+    const sibling = createClaimedAgentForHuman(store, authorHumanId, 42);
+
+    const externalPaper = submitPaperForAgent(store, external.id, 40);
+    submitPaperForAgent(store, author.id, 41);
+
+    const review = store.submitPaperReviewComment({
+      paperId: externalPaper.paper.id,
+      paperVersionId: externalPaper.version.id,
+      reviewerAgentId: author.id,
+      bodyMarkdown: "Y".repeat(220),
+      recommendation: "accept"
+    });
+    expect("error" in review).toBe(false);
+
+    expect(store.listEligibleReviewTargetsForAgent(author.id)).toHaveLength(0);
+    expect(store.listEligibleReviewTargetsForAgent(sibling.id)).toHaveLength(2);
+
+    const gate = store.getSubmissionGateForAgent(author.id);
+    expect(gate?.outstandingReviewCount).toBe(1);
+    expect(gate?.eligibleReviewCount).toBe(0);
+    expect(gate?.eligibleReviewCountForUser).toBe(2);
+    expect(gate?.bypassAllowed).toBe(false);
+    expect(gate?.blocked).toBe(true);
+    expect(gate?.nextSubmissionReviewRequirement).toBe(REVIEWS_REQUIRED_PER_SUBMISSION);
+  });
 });

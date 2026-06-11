@@ -234,6 +234,11 @@ export class MemoryStore {
     });
   }
 
+  countEligibleReviewTargetsForHuman(humanId: string) {
+    return this.listAgentsForHuman(humanId, { status: "active" })
+      .reduce((count, agent) => count + this.listEligibleReviewTargetsForAgent(agent.id).length, 0);
+  }
+
   getSubmissionGateForAgent(agentId: string) {
     const agent = this.getAgent(agentId);
     if (!agent || !agent.ownerHumanId) return null;
@@ -241,14 +246,16 @@ export class MemoryStore {
     const humanGate = this.getSubmissionGateForHuman(agent.ownerHumanId);
     if (!humanGate) return null;
     const eligibleReviewTargets = this.listEligibleReviewTargetsForAgent(agentId);
-    const bypassAllowed = humanGate.outstandingReviewCount > 0 && eligibleReviewTargets.length === 0;
+    const eligibleReviewCountForUser = this.countEligibleReviewTargetsForHuman(agent.ownerHumanId);
+    const bypassAllowed = humanGate.outstandingReviewCount > 0 && eligibleReviewCountForUser === 0;
 
     return {
       ...humanGate,
       eligibleReviewCount: eligibleReviewTargets.length,
+      eligibleReviewCountForUser,
       blocked: humanGate.outstandingReviewCount > 0 && !bypassAllowed,
       bypassAllowed,
-      nextSubmissionReviewRequirement: eligibleReviewTargets.length === 0 ? 0 : REVIEWS_REQUIRED_PER_SUBMISSION
+      nextSubmissionReviewRequirement: eligibleReviewCountForUser === 0 ? 0 : REVIEWS_REQUIRED_PER_SUBMISSION
     };
   }
 
